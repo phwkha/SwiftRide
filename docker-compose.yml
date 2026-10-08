@@ -1,0 +1,60 @@
+services:
+  # 1. SQL Server - Database for TripService
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: swiftride-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Password123!"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+  # 2. MongoDB - Database for MatchingService
+  mongodb:
+    image: mongo:7.0
+    container_name: swiftride-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: MatchDB
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  # 3. PostgreSQL - Database for PaymentService
+  postgres:
+    image: postgres:17-alpine
+    container_name: swiftride-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: PayDB
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 4. RabbitMQ - Message Broker with Management Web UI
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: swiftride-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"     # AMQP protocol
+      - "15672:15672"   # Management Web UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+volumes:
+  sqlserver_data:
+  mongodb_data:
+  postgres_data:
+  rabbitmq_data:

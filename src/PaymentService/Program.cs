@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using PaymentService.Infrastructure.Data;
 
@@ -12,6 +13,18 @@ var connectionString = builder.Configuration.GetConnectionString("PaymentDbConne
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseNpgsql(connectionString));
+
+// Register MassTransit with RabbitMQ
+builder.Services.AddMassTransit(x =>
+{
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
+            ?? "amqp://guest:guest@localhost:5672";
+        cfg.Host(new Uri(rabbitMqConnection));
+        cfg.ConfigureEndpoints(context);
+    });
+});
 
 var app = builder.Build();
 

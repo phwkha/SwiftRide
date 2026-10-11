@@ -1,3 +1,4 @@
+using MassTransit;
 using MatchingService.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,7 +9,26 @@ builder.Services.AddOpenApi();
 // Register MongoDB Context
 builder.Services.AddSingleton<MongoDbContext>();
 
+// Register MassTransit with RabbitMQ
+builder.Services.AddMassTransit(x =>
+{
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
+            ?? "amqp://guest:guest@localhost:5672";
+        cfg.Host(new Uri(rabbitMqConnection));
+        cfg.ConfigureEndpoints(context);
+    });
+});
+
 var app = builder.Build();
+
+// Initialize MongoDB indexes
+using (var scope = app.Services.CreateScope())
+{
+    var mongoContext = scope.ServiceProvider.GetRequiredService<MongoDbContext>();
+    await mongoContext.InitializeIndexesAsync();
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -21,3 +41,4 @@ app.UseHttpsRedirection();
 app.MapGet("/", () => Results.Ok(new { Service = "MatchingService", Status = "Running" }));
 
 app.Run();
+

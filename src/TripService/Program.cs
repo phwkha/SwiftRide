@@ -1,4 +1,6 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using TripService.Infrastructure.BackgroundServices;
 using TripService.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +14,21 @@ var connectionString = builder.Configuration.GetConnectionString("TripDbConnecti
 
 builder.Services.AddDbContext<TripDbContext>(options =>
     options.UseSqlServer(connectionString));
+
+// Register MassTransit with RabbitMQ
+builder.Services.AddMassTransit(x =>
+{
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
+            ?? "amqp://guest:guest@localhost:5672";
+        cfg.Host(new Uri(rabbitMqConnection));
+        cfg.ConfigureEndpoints(context);
+    });
+});
+
+// Register Outbox publisher background service
+builder.Services.AddHostedService<OutboxPublisherService>();
 
 var app = builder.Build();
 

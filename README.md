@@ -14,13 +14,13 @@ Hệ thống tuân thủ mô hình **Database-per-Service**, giao tiếp đồng
 flowchart TD
     Client["Client (Rider / Driver App)"]
     Gateway["API Gateway (YARP - Port 5000)"]
-    
+
     Broker[("RabbitMQ\n(Event Bus)")]
-    
+
     TripSvc["Trip Service\n(Port 5105)"]
     MatchSvc["Matching & Pricing Service\n(Port 5248)"]
     PaySvc["Payment Service\n(Port 5114)"]
-    
+
     DB_Trip[("SQL Server\nTripDB")]
     DB_Match[("MongoDB\nMatchDB")]
     DB_Pay[("PostgreSQL\nPayDB")]
@@ -29,11 +29,11 @@ flowchart TD
     Gateway --> TripSvc
     Gateway --> MatchSvc
     Gateway --> PaySvc
-    
+
     TripSvc <--> DB_Trip
     MatchSvc <--> DB_Match
     PaySvc <--> DB_Pay
-    
+
     TripSvc -.-> Broker
     MatchSvc -.-> Broker
     PaySvc -.-> Broker
@@ -41,13 +41,13 @@ flowchart TD
 
 ### Danh sách các dịch vụ cốt lõi
 
-| Dịch vụ | Cổng | Cơ sở dữ liệu | Vai trò chính & Design Pattern |
-| :--- | :---: | :---: | :--- |
-| **ApiGateway** | `5000` | *Không* | Reverse Proxy (YARP), chứng thực JWT, Rate-limit, định tuyến yêu cầu. |
-| **TripService** | `5105` | **SQL Server** (`1433`) | Quản lý vòng đời chuyến đi (**State Pattern**), lưu trữ giao dịch cần tính ACID cao. |
-| **MatchingService** | `5248` | **MongoDB** (`27017`) | Tìm tài xế gần nhất (**Geo-spatial index**), tính giá cước linh hoạt (**Strategy Pattern**). |
-| **PaymentService** | `5114` | **PostgreSQL** (`5432`) | Sổ cái giao dịch kép (**Double-entry Ledger**), hỗ trợ **Idempotency**, thanh toán (**Factory Pattern**). |
-| **RabbitMQ** | `5672` / `15672` | *Message Broker* | Truyền nhận domain events bất đồng bộ (**Pub/Sub** qua MassTransit). |
+| Dịch vụ             |       Cổng       |      Cơ sở dữ liệu      | Vai trò chính & Design Pattern                                                                            |
+| :------------------ | :--------------: | :---------------------: | :-------------------------------------------------------------------------------------------------------- |
+| **ApiGateway**      |      `5000`      |         _Không_         | Reverse Proxy (YARP), chứng thực JWT, Rate-limit, định tuyến yêu cầu.                                     |
+| **TripService**     |      `5105`      | **SQL Server** (`1433`) | Quản lý vòng đời chuyến đi (**State Pattern**), lưu trữ giao dịch cần tính ACID cao.                      |
+| **MatchingService** |      `5248`      |  **MongoDB** (`27017`)  | Tìm tài xế gần nhất (**Geo-spatial index**), tính giá cước linh hoạt (**Strategy Pattern**).              |
+| **PaymentService**  |      `5114`      | **PostgreSQL** (`5432`) | Sổ cái giao dịch kép (**Double-entry Ledger**), hỗ trợ **Idempotency**, thanh toán (**Factory Pattern**). |
+| **RabbitMQ**        | `5672` / `15672` |    _Message Broker_     | Truyền nhận domain events bất đồng bộ (**Pub/Sub** qua MassTransit).                                      |
 
 ---
 
@@ -60,7 +60,7 @@ Trước khi cài đặt, hãy đảm bảo máy tính của bạn đã cài đ�
 3. **[Git](https://git-scm.com/)**.
 4. **IDE khuyến nghị**:
    - Visual Studio 2026 (hỗ trợ .NET 10).
-   - Visual Studio Code (kèm extension *C# Dev Kit*).
+   - Visual Studio Code (kèm extension _C# Dev Kit_).
    - JetBrains Rider 2026+.
 
 ---
@@ -83,6 +83,7 @@ docker compose up -d
 ```
 
 Kiểm tra trạng thái các container đang chạy:
+
 ```bash
 docker compose ps
 ```
@@ -100,34 +101,36 @@ dotnet build SwiftRide.slnx
 
 ### Hạ tầng (Infrastructure)
 
-| Dịch vụ hạ tầng | Địa chỉ / Cổng | Tài khoản / Mật khẩu | Ghi chú |
-| :--- | :--- | :--- | :--- |
-| **SQL Server** | `localhost:1433` | `sa` / `Password123!` | Dành cho TripService |
-| **MongoDB** | `localhost:27017` | Mặc định (no auth) | DB: `MatchDB` |
-| **PostgreSQL** | `localhost:5432` | `postgres` / `postgrespassword` | DB: `PayDB` |
-| **RabbitMQ Management** | `http://localhost:15672` | `guest` / `guest` | Giao diện quản lý hàng đợi |
-| **RabbitMQ AMQP** | `amqp://localhost:5672` | `guest` / `guest` | Cổng kết nối bus |
+| Dịch vụ hạ tầng         | Địa chỉ / Cổng           | Tài khoản / Mật khẩu            | Ghi chú                    |
+| :---------------------- | :----------------------- | :------------------------------ | :------------------------- |
+| **SQL Server**          | `localhost:1433`         | `sa` / `Password123!`           | Dành cho TripService       |
+| **MongoDB**             | `localhost:27017`        | Mặc định (no auth)              | DB: `MatchDB`              |
+| **PostgreSQL**          | `localhost:5432`         | `postgres` / `postgrespassword` | DB: `PayDB`                |
+| **RabbitMQ Management** | `http://localhost:15672` | `guest` / `guest`               | Giao diện quản lý hàng đợi |
+| **RabbitMQ AMQP**       | `amqp://localhost:5672`  | `guest` / `guest`               | Cổng kết nối bus           |
 
 ### Microservices (.NET Apps)
 
-| Dịch vụ | URL HTTP (Local) | Swagger / OpenAPI |
-| :--- | :--- | :--- |
-| **ApiGateway** | `http://localhost:5000` | Cổng vào chung của toàn hệ thống |
-| **TripService** | `http://localhost:5105` | `http://localhost:5105/openapi/v1.json` |
+| Dịch vụ             | URL HTTP (Local)        | Swagger / OpenAPI                       |
+| :------------------ | :---------------------- | :-------------------------------------- |
+| **ApiGateway**      | `http://localhost:5000` | Cổng vào chung của toàn hệ thống        |
+| **TripService**     | `http://localhost:5105` | `http://localhost:5105/openapi/v1.json` |
 | **MatchingService** | `http://localhost:5248` | `http://localhost:5248/openapi/v1.json` |
-| **PaymentService** | `http://localhost:5114` | `http://localhost:5114/openapi/v1.json` |
+| **PaymentService**  | `http://localhost:5114` | `http://localhost:5114/openapi/v1.json` |
 
 ---
 
 ## 🏃 Hướng dẫn chạy các Microservices
 
 ### Cách 1: Sử dụng Visual Studio (Khuyến nghị)
+
 1. Mở file solution `SwiftRide.slnx`.
 2. Click chuột phải vào **Solution 'SwiftRide'** $\rightarrow$ chọn **Configure Startup Projects...**
 3. Chọn **Multiple startup projects** và đặt **Action = Start** cho cả 4 projects (`ApiGateway`, `TripService`, `MatchingService`, `PaymentService`).
 4. Nhấn **F5** để khởi chạy toàn bộ.
 
 ### Cách 2: Sử dụng dòng lệnh (CLI / Terminal)
+
 Mở 4 tab terminal riêng biệt và chạy từng dịch vụ:
 
 ```bash
@@ -177,29 +180,3 @@ SwiftRide/
 ├── SwiftRide.slnx                         # Solution file (.NET 10)
 └── README.md
 ```
-
----
-
-## 📐 Quy chuẩn phát triển (Development Standards)
-
-1. **Tuân thủ SOLID**:
-   - **SRP**: Tách biệt logic nghiệp vụ, tính giá (`FareCalculator`), và truy xuất dữ liệu (`TripRepository`).
-   - **OCP**: Bổ sung chiến lược giá mới (`SurgePricing`, `PromoPricing`) qua `IPricingStrategy` mà không sửa đổi code cũ.
-   - **LSP**: Mọi chiến lược giá phải đảm bảo giá hợp lệ (không âm).
-   - **ISP**: Chia nhỏ interface đọc/ghi (`ITripReader`, `ITripWriter`).
-   - **DIP**: Đăng ký và phụ thuộc qua Interface trong DI Container.
-2. **Quy chuẩn Git cho Team**:
-   - Tên nhánh:
-     - Tính năng mới: `feature/<ten-tinh-nang>` (ví dụ: `feature/trip-state-machine`)
-     - Sửa lỗi: `fix/<ten-loi>` (ví dụ: `fix/yarp-route-forwarding`)
-     - Cải tiến: `refactor/<mo-ta>`
-   - Format Commit (Conventional Commits):
-     - `feat: ...` : Thêm tính năng mới
-     - `fix: ...` : Sửa lỗi
-     - `docs: ...` : Cập nhật tài liệu
-     - `refactor: ...` : Tái cấu trúc code
-     - `test: ...` : Thêm kiểm thử
-3. **Quy trình gửi Pull Request (PR)**:
-   - Đảm bảo mã nguồn build thành công: `dotnet build SwiftRide.slnx`.
-   - Toàn bộ unit test vượt qua: `dotnet test`.
-   - Tạo PR vào nhánh `main` và yêu cầu ít nhất 1 thành viên review.

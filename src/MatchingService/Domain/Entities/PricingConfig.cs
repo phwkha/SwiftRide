@@ -36,6 +36,12 @@ public class PricingConfig
     [BsonElement("tax_rate")]
     public decimal TaxRate { get; set; } = 0.10m;
 
+    /// <summary>
+    /// η: Promo/discount multiplier (e.g. 0.9 for 10% discount, 1.0 for no discount)
+    /// </summary>
+    [BsonElement("promo_multiplier")]
+    public decimal PromoMultiplier { get; set; } = 1.0m;
+
     [BsonElement("is_active")]
     public bool IsActive { get; set; } = true;
 

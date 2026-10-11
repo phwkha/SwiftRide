@@ -37,6 +37,6 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasMany(t => t.LedgerEntries)
             .WithOne(e => e.Transaction)
             .HasForeignKey(e => e.TransactionId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

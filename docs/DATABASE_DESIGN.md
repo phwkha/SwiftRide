@@ -1,58 +1,92 @@
-# SwiftRide - Thiết kế Cơ sở dữ liệu (Database Architecture & Design)
+# 🗄️ SwiftRide - Thiết Kế Cơ Sở Dữ Liệu Chi Tiết (Database Architecture & Design)
 
-Tài liệu thiết kế cơ sở dữ liệu cho hệ thống **SwiftRide**, bám sát đặc tả kiến trúc tại [`docs/RideLite-KienTrucPhanMem.pdf`](RideLite-KienTrucPhanMem.pdf).
-
-Hệ thống áp dụng mô hình **Database-per-Service** và nguyên lý **Polyglot Persistence**:
-- **Trip Service**: Sử dụng **SQL Server** (RDBMS) – Đảm bảo tính ACID cao, quản lý State Machine và lịch sử chuyến đi.
-- **Matching & Pricing Service**: Sử dụng **MongoDB** (Document / NoSQL) – Tối ưu cho dữ liệu vị trí động của tài xế với **Geo-spatial Index (`2dsphere`)**, đọc/ghi nhanh và schema linh hoạt.
-- **Payment Service**: Sử dụng **PostgreSQL** (RDBMS) – Hệ thống **Sổ cái kép (Double-entry Ledger)**, đảm bảo tính nhất quán tuyệt đối trong kế toán, hỗ trợ **Idempotency** và bảo mật chuẩn PCI-DSS (chỉ lưu token thanh toán).
+> **Căn cứ tài liệu kiến trúc:** [`docs/RideLite-KienTrucPhanMem.pdf`](RideLite-KienTrucPhanMem.pdf) (Mục 2.4: 3 Microservices, Mục 3.3: Ba cơ sở dữ liệu khác nhau, Mục 4: Flowchart vòng đời chuyến đi, Mục 5: Chi tiết 3 microservices).  
+> **Tài liệu tham chiếu trực tiếp:**  
+> - Sơ đồ phân rã chức năng & 15 Sơ đồ trình tự: [`docs/FUNCTIONAL_DECOMPOSITION_AND_SEQUENCE_DIAGRAMS.md`](FUNCTIONAL_DECOMPOSITION_AND_SEQUENCE_DIAGRAMS.md)  
+> - Hợp đồng API & Bàn giao Frontend: [`docs/API_CONTRACT_AND_FE_INTEGRATION.md`](API_CONTRACT_AND_FE_INTEGRATION.md)  
+> - Kế hoạch triển khai Sprint 10 ngày: [`docs/DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md)  
 
 ---
 
-## 1. Kiến trúc tổng thể CSDL (Polyglot Persistence)
+## 📑 MỤC LỤC
+1. [Kiến Trúc Tổng Thể CSDL (Polyglot Persistence)](#1-kiến-trúc-tổng-thể-csdl-polyglot-persistence)
+2. [Chi Tiết CSDL Trip Service (SQL Server - `TripDB`)](#2-chi-tiết-csdl-trip-service-sql-server---tripdb)
+   - [Bảng `Trips`](#bảng-trips)
+   - [Bảng ánh xạ 10 Trạng thái Chuyến đi (`TripStatus`)](#bảng-ánh-xạ-10-trạng-thái-chuyến-đi-tripstatus)
+   - [Bảng `TripStatusHistories`](#bảng-tripstatushistories)
+   - [Bảng `OutboxMessages`](#bảng-outboxmessages)
+3. [Chi Tiết CSDL Matching & Pricing Service (MongoDB - `MatchDB`)](#3-chi-tiết-csdl-matching--pricing-service-mongodb---matchdb)
+   - [Collection `Drivers`](#collection-drivers)
+   - [Collection `PricingConfigs`](#collection-pricingconfigs)
+   - [Collection `SurgeZones`](#collection-surgezones)
+   - [Collection `TripQuotes`](#collection-tripquotes)
+4. [Chi Tiết CSDL Payment Service (PostgreSQL - `PayDB`)](#4-chi-tiết-csdl-payment-service-postgresql---paydb)
+   - [Bảng `accounts`](#bảng-accounts)
+   - [Bảng `transactions`](#bảng-transactions)
+   - [Bảng `ledger_entries` (Sổ cái kép bất biến)](#bảng-ledger_entries-sổ-cái-kép-bất-biến)
+   - [Bảng `payment_tokens`](#bảng-payment_tokens)
+   - [Bảng `idempotency_records`](#bảng-idempotency_records)
+   - [Bảng `outbox_messages`](#bảng-outbox_messages)
+5. [Ma Trận Ánh Xạ CSDL & 15 Sơ Đồ Trình Tự (Traceability Matrix)](#5-ma-trận-ánh-xạ-csdl--15-sơ-đồ-trình-tự-traceability-matrix)
+6. [Tổng Hợp Cấu Hình Docker & Connection String](#6-tổng-hợp-cấu-hình-docker--connection-string)
+
+---
+
+## 1. Kiến Trúc Tổng Thể CSDL (Polyglot Persistence)
+
+Hệ thống SwiftRide áp dụng mô hình **Database-per-Service** và nguyên lý **Polyglot Persistence**: mỗi microservice độc quyền sở hữu một CSDL chuyên biệt phù hợp nhất với bản chất nghiệp vụ của nó:
 
 ```mermaid
 flowchart TD
     subgraph TripService_Scope["1. Trip Service (SQL Server - TripDB)"]
         direction TB
-        Trips["Trips (Bảng chính - State Machine)"]
-        TripStatusHistories["TripStatusHistories (Lịch sử trạng thái)"]
-        OutboxMessages["OutboxMessages (Transactional Outbox)"]
+        Trips["Trips (Bảng chính - State Machine 10 trạng thái)"]
+        TripStatusHistories["TripStatusHistories (Audit nhật ký trạng thái)"]
+        TripOutbox["OutboxMessages (Transactional Outbox)"]
         Trips --> TripStatusHistories
-        Trips -.-> OutboxMessages
+        Trips -.-> TripOutbox
     end
 
     subgraph MatchingService_Scope["2. Matching & Pricing Service (MongoDB - MatchDB)"]
         direction TB
-        Drivers[("Drivers (GeoJSON 2dsphere)")]
-        PricingConfigs[("PricingConfigs (Biểu phí gốc)")]
-        SurgeZones[("SurgeZones (Vùng giá động)")]
-        TripQuotes[("TripQuotes (Báo giá tạm thời)")]
+        Drivers[("Drivers (GeoJSON Point + 2dsphere index)")]
+        PricingConfigs[("PricingConfigs (Biểu phí gốc: cd, ct, cm, T, eta)")]
+        SurgeZones[("SurgeZones (Vùng giá động: GeoJSON Polygon)")]
+        TripQuotes[("TripQuotes (Báo giá tạm thời + TTL index 10m)")]
     end
 
     subgraph PaymentService_Scope["3. Payment Service (PostgreSQL - PayDB)"]
         direction TB
-        Accounts["Accounts (Tài khoản ví / sàn)"]
-        Transactions["Transactions (Giao dịch tài chính)"]
-        LedgerEntries["LedgerEntries (Bút toán sổ cái kép Debit/Credit)"]
-        PaymentTokens["PaymentTokens (Token thẻ / ví liên kết)"]
-        IdempotencyRecords["IdempotencyRecords (Chống trừ tiền trùng lặp)"]
+        Accounts["accounts (Tài khoản ví: Rider, Driver, Sàn)"]
+        Transactions["transactions (Giao dịch tài chính)"]
+        LedgerEntries["ledger_entries (Sổ cái kép Debit/Credit)"]
+        PaymentTokens["payment_tokens (Token bảo mật chuẩn PCI-DSS)"]
+        IdempotencyRecords["idempotency_records (Khóa chống trừ tiền trùng)"]
+        PayOutbox["outbox_messages (Transactional Outbox)"]
         
         Transactions --> LedgerEntries
         Accounts --> LedgerEntries
+        Transactions -.-> PayOutbox
     end
+
+    EventBus[("RabbitMQ MassTransit Event Bus")]
+    TripOutbox -->|Publish TripRequested / TripDroppedOff| EventBus
+    EventBus -->|Consume| MatchingService_Scope
+    EventBus -->|Consume| PaymentService_Scope
+    PayOutbox -->|Publish PaymentSettled / PaymentRefunded| EventBus
+    EventBus -->|Consume| TripService_Scope
 ```
 
 ---
 
-## 2. Chi tiết CSDL Trip Service (SQL Server - `TripDB`)
+## 2. Chi Tiết CSDL Trip Service (SQL Server - `TripDB`)
 
 ### 2.1. Mục đích & Lý do chọn
-- Trạng thái chuyến đi là một máy trạng thái (State Machine): `Requested` $\rightarrow$ `DriverAccepted` $\rightarrow$ `EnRoute` $\rightarrow$ `PickedUp` $\rightarrow$ `DroppedOff` $\rightarrow$ `PaymentPending` $\rightarrow$ `Paid` / `Completed` (nhánh kết thúc: `Cancelled`, `Failed`).
-- Yêu cầu tính toàn vẹn dữ liệu, ràng buộc quan hệ chặt chẽ và tính **ACID** cao.
-- Áp dụng **Transactional Outbox Pattern** để đảm bảo việc cập nhật trạng thái và phát sự kiện sang RabbitMQ diễn ra tin cậy trong cùng transaction.
+- **Tính toàn vẹn & ACID cao:** Vòng đời chuyến đi là một máy trạng thái (State Machine) cần bảo toàn tính nhất quán tuyệt đối, không được nhảy cóc trạng thái.
+- **Khóa lạc quan (Optimistic Concurrency Control):** Sử dụng cột `RowVersion` để giải quyết tranh chấp cuốc xe khi nhiều tài xế cùng bấm nhận 1 chuyến tại cùng mili-giây (SD 05: F2.3).
+- **Mẫu Transactional Outbox:** Bảng `OutboxMessages` được ghi trong cùng Local Transaction với bảng `Trips` để đảm bảo dữ liệu và sự kiện domain không bao giờ bị lệch (SD 03: F2.1, SD 06: F2.4).
 
-### 2.2. Sơ đồ thực thể ERD
+### 2.2. Sơ đồ thực thể ERD (TripDB)
 
 ```mermaid
 erDiagram
@@ -61,7 +95,7 @@ erDiagram
         uniqueidentifier Id PK
         uniqueidentifier RiderId "Indexed"
         uniqueidentifier DriverId "Indexed, Nullable"
-        nvarchar Status "Indexed"
+        nvarchar Status "Indexed (10 states)"
         decimal PickupLatitude
         decimal PickupLongitude
         nvarchar PickupAddress
@@ -72,6 +106,7 @@ erDiagram
         int EstimatedDurationMinutes
         decimal EstimatedFare
         decimal ActualFare "Nullable"
+        bit FareConfirmed "Default 0"
         int DriverRejectionCount "Default 0"
         datetimeoffset CreatedAt
         datetimeoffset UpdatedAt "Nullable"
@@ -94,10 +129,10 @@ erDiagram
 
     OutboxMessages {
         uniqueidentifier Id PK
-        datetimeoffset OccurredOn
-        nvarchar Type
+        nvarchar EventType
         nvarchar Payload "JSON"
-        datetimeoffset ProcessedOn "Nullable"
+        datetimeoffset CreatedAt
+        datetimeoffset ProcessedAt "Nullable, Indexed"
         nvarchar Error "Nullable"
     }
 ```
@@ -105,113 +140,145 @@ erDiagram
 ### 2.3. Bảng dữ liệu chi tiết
 
 #### Bảng `Trips`
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả & Ánh xạ Sơ đồ trình tự |
 | :--- | :--- | :--- | :--- |
-| `Id` | `UNIQUEIDENTIFIER` | PK | Mã định danh chuyến đi |
-| `RiderId` | `UNIQUEIDENTIFIER` | NOT NULL, Index | Mã hành khách đặt xe |
-| `DriverId` | `UNIQUEIDENTIFIER` | NULL, Index | Mã tài xế nhận cuốc |
-| `Status` | `NVARCHAR(50)` | NOT NULL, Index | Trạng thái hiện tại theo State Pattern |
-| `PickupLatitude` | `DECIMAL(9, 6)` | NOT NULL | Vĩ độ điểm đón |
-| `PickupLongitude` | `DECIMAL(9, 6)` | NOT NULL | Kinh độ điểm đón |
-| `PickupAddress` | `NVARCHAR(255)` | NOT NULL | Địa chỉ điểm đón |
-| `DropoffLatitude` | `DECIMAL(9, 6)` | NOT NULL | Vĩ độ điểm đến |
-| `DropoffLongitude` | `DECIMAL(9, 6)` | NOT NULL | Kinh độ điểm đến |
-| `DropoffAddress` | `NVARCHAR(255)` | NOT NULL | Địa chỉ điểm đến |
-| `DistanceKm` | `DECIMAL(8, 2)` | NOT NULL | Quãng đường ước tính (km) |
-| `EstimatedDurationMinutes` | `INT` | NOT NULL | Thời gian di chuyển dự kiến (phút) |
+| `Id` | `UNIQUEIDENTIFIER` | PK | Mã định danh duy nhất của chuyến đi |
+| `RiderId` | `UNIQUEIDENTIFIER` | NOT NULL, Index | Mã hành khách đặt cuốc xe (SD 03) |
+| `DriverId` | `UNIQUEIDENTIFIER` | NULL, Index | Mã tài xế nhận cuốc (gán ở SD 05: F2.3) |
+| `Status` | `NVARCHAR(50)` | NOT NULL, Index | Trạng thái vòng đời chuyến đi (10 trạng thái) |
+| `PickupLatitude` | `DECIMAL(9, 6)` | NOT NULL | Vĩ độ điểm đón khách |
+| `PickupLongitude` | `DECIMAL(9, 6)` | NOT NULL | Kinh độ điểm đón khách |
+| `PickupAddress` | `NVARCHAR(255)` | NOT NULL | Địa chỉ văn bản điểm đón khách |
+| `DropoffLatitude` | `DECIMAL(9, 6)` | NOT NULL | Vĩ độ điểm trả khách |
+| `DropoffLongitude` | `DECIMAL(9, 6)` | NOT NULL | Kinh độ điểm trả khách |
+| `DropoffAddress` | `NVARCHAR(255)` | NOT NULL | Địa chỉ văn bản điểm trả khách |
+| `DistanceKm` | `DECIMAL(8, 2)` | NOT NULL | Cự ly di chuyển ước tính (km) |
+| `EstimatedDurationMinutes` | `INT` | NOT NULL | Thời gian ước tính (phút) |
 | `EstimatedFare` | `DECIMAL(18, 2)` | NOT NULL | Giá cước ước tính ban đầu |
-| `ActualFare` | `DECIMAL(18, 2)` | NULL | Giá cước thực tế sau chuyến đi |
-| `DriverRejectionCount`| `INT` | NOT NULL, DEFAULT 0 | Số lần tài xế từ chối (tối đa $k$ lần) |
-| `CreatedAt` | `DATETIMEOFFSET` | NOT NULL | Thời điểm yêu cầu |
-| `UpdatedAt` | `DATETIMEOFFSET` | NULL | Thời điểm cập nhật cuối |
-| `AcceptedAt` | `DATETIMEOFFSET` | NULL | Thời điểm tài xế nhận chuyến |
-| `PickedUpAt` | `DATETIMEOFFSET` | NULL | Thời điểm đón khách |
-| `DroppedOffAt` | `DATETIMEOFFSET` | NULL | Thời điểm trả khách |
-| `CompletedAt` | `DATETIMEOFFSET` | NULL | Thời điểm hoàn tất thanh toán |
-| `CancellationReason` | `NVARCHAR(255)` | NULL | Lý do hủy chuyến nếu có |
-| `RowVersion` | `ROWVERSION` | NOT NULL | Khóa lạc quan (Optimistic Concurrency Control) |
-
-#### Bảng `TripStatusHistories`
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `Id` | `BIGINT` | PK, IDENTITY(1,1) | Khóa chính tăng tự động |
-| `TripId` | `UNIQUEIDENTIFIER` | FK (`Trips.Id`) | Khóa ngoại liên kết chuyến đi |
-| `FromStatus` | `NVARCHAR(50)` | NULL | Trạng thái trước khi chuyển |
-| `ToStatus` | `NVARCHAR(50)` | NOT NULL | Trạng thái mới |
-| `Reason` | `NVARCHAR(255)` | NULL | Ghi chú hoặc lý do chuyển trạng thái |
-| `ChangedAt` | `DATETIMEOFFSET` | NOT NULL | Thời điểm ghi nhận |
-
-#### Bảng `OutboxMessages` (Transactional Outbox)
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `Id` | `UNIQUEIDENTIFIER` | PK | Mã message |
-| `OccurredOn` | `DATETIMEOFFSET` | NOT NULL | Thời điểm phát sinh sự kiện domain |
-| `Type` | `NVARCHAR(255)` | NOT NULL | Tên kiểu sự kiện (vd: `TripAcceptedEvent`) |
-| `Payload` | `NVARCHAR(MAX)` | NOT NULL | Nội dung sự kiện serialize JSON |
-| `ProcessedOn` | `DATETIMEOFFSET` | NULL, Index | Thời điểm đã publish lên RabbitMQ |
-| `Error` | `NVARCHAR(MAX)` | NULL | Lỗi nếu publish thất bại |
+| `ActualFare` | `DECIMAL(18, 2)` | NULL | Giá cước quyết toán thực tế khi trả khách |
+| `FareConfirmed` | `BIT` | NOT NULL, DEFAULT 0 | Đánh dấu khách đã đồng ý giá cước (SD 04: F2.2) |
+| `DriverRejectionCount` | `INT` | NOT NULL, DEFAULT 0 | Số lần tài xế từ chối cuốc xe (tối đa $k$ lần, SD 11: F3.3) |
+| `CreatedAt` | `DATETIMEOFFSET` | NOT NULL | Thời điểm khởi tạo cuốc xe (SD 03: F2.1) |
+| `UpdatedAt` | `DATETIMEOFFSET` | NULL | Thời điểm cập nhật dữ liệu gần nhất |
+| `AcceptedAt` | `DATETIMEOFFSET` | NULL | Thời điểm tài xế bấm nhận cuốc (SD 05: F2.3) |
+| `PickedUpAt` | `DATETIMEOFFSET` | NULL | Thời điểm khách lên xe (SD 06: F2.4) |
+| `DroppedOffAt` | `DATETIMEOFFSET` | NULL | Thời điểm khách xuống xe (SD 06: F2.4) |
+| `CompletedAt` | `DATETIMEOFFSET` | NULL | Thời điểm hoàn tất thanh toán (SD 08: F2.6) |
+| `CancellationReason` | `NVARCHAR(255)` | NULL | Lý do hủy chuyến nếu có (SD 04, SD 07) |
+| `RowVersion` | `ROWVERSION` | NOT NULL | Token kiểm soát đồng thời chống tranh chấp cuốc (SD 05) |
 
 ---
 
-## 3. Chi tiết CSDL Matching & Pricing Service (MongoDB - `MatchDB`)
+### Bảng ánh xạ 10 Trạng thái Chuyến đi (`TripStatus`)
+Bám sát **Mục 4 (Flowchart vòng đời chuyến đi)** và **Mục 7 (State Pattern - Listing 6)** trong tài liệu kiến trúc PDF:
+
+| Mã Trạng Thái | Tên Trạng Thái (`TripStatus`) | Hành Động Kích Hoạt | Sơ Đồ Trình Tự Tương Ứng |
+|:---:|:---|:---|:---:|
+| **0** | `Requested` | Khách tạo cuốc xe mới | **SD 03 (F2.1)** |
+| **1** | `DriverAccepted` | Tài xế bấm chấp nhận cuốc xe | **SD 05 (F2.3)** |
+| **2** | `EnRoute` | Tài xế bắt đầu di chuyển tới điểm đón | **SD 06 (F2.4)** |
+| **3** | `PickedUp` | Tài xế xác nhận khách đã lên xe | **SD 06 (F2.4)** |
+| **4** | `DroppedOff` | Tài xế trả khách tại điểm đích | **SD 06 (F2.4)** |
+| **5** | `PaymentPending` | Lỗi trừ tiền tạm thời, chờ xử lý lại | **SD 13 (F4.2)** |
+| **6** | `Paid` | Trừ tiền thành công, đang đóng cuốc | **SD 12 (F4.1)** |
+| **7** | `Completed` | Kết thúc thành công toàn bộ hành trình | **SD 08 (F2.6)** |
+| **8** | `Cancelled` | Khách hoặc tài xế hủy cuốc trước khi đón | **SD 04, SD 07** |
+| **9** | `Failed` | Tài xế từ chối vượt quá $k$ lần thử | **SD 11 (F3.3)** |
+
+---
+
+#### Bảng `TripStatusHistories`
+Phục vụ Audit Trail lưu vết lịch sử mọi lần chuyển đổi trạng thái của cuốc xe:
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `Id` | `BIGINT` | PK, IDENTITY(1,1) | Khóa chính tăng tự động |
+| `TripId` | `UNIQUEIDENTIFIER` | NOT NULL, FK (`Trips.Id`) | Khóa ngoại liên kết chuyến đi |
+| `FromStatus` | `NVARCHAR(50)` | NULL | Trạng thái nguồn trước khi chuyển đổi |
+| `ToStatus` | `NVARCHAR(50)` | NOT NULL | Trạng thái đích mới |
+| `Reason` | `NVARCHAR(255)` | NULL | Lý do chuyển trạng thái (hoặc ghi chú) |
+| `ChangedAt` | `DATETIMEOFFSET` | NOT NULL | Thời điểm ghi nhận sự kiện chuyển đổi |
+
+#### Bảng `OutboxMessages` (Transactional Outbox trên SQL Server)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả & Mục đích |
+| :--- | :--- | :--- | :--- |
+| `Id` | `UNIQUEIDENTIFIER` | PK | Mã định danh thông điệp |
+| `EventType` | `NVARCHAR(255)` | NOT NULL | Tên kiểu sự kiện: `TripRequestedEvent`, `TripDroppedOffEvent` |
+| `Payload` | `NVARCHAR(MAX)` | NOT NULL | Nội dung Event serialize JSON |
+| `CreatedAt` | `DATETIMEOFFSET` | NOT NULL | Thời điểm phát sinh sự kiện trong transaction |
+| `ProcessedAt` | `DATETIMEOFFSET` | NULL, Index | Thời điểm Outbox Worker đã publish lên RabbitMQ |
+| `Error` | `NVARCHAR(MAX)` | NULL | Lỗi chi tiết nếu publish lên broker thất bại |
+
+---
+
+## 3. Chi Tiết CSDL Matching & Pricing Service (MongoDB - `MatchDB`)
 
 ### 3.1. Mục đích & Lý do chọn
-- Lưu trữ vị trí không gian địa lý thời gian thực của hàng ngàn tài xế.
-- Cần chỉ mục không gian địa lý **`2dsphere`** để truy vấn tài xế rảnh gần điểm đón nhất với độ trễ cực thấp (`$nearSphere` / `$geoNear`).
-- Schema Document linh hoạt, dễ mở rộng thông tin phương tiện, đặc tính tài xế và các tham số tính giá động theo khu vực (Surge Zones).
+- **Lưu trữ vị trí động tốc độ cao:** Tọa độ GPS của hàng nghìn tài xế được gửi về mỗi 10 giây (SD 10: F3.2).
+- **Chỉ mục không gian địa lý `2dsphere`:** Bắt buộc phải có để thực hiện toán tử `$nearSphere` tìm tài xế gần nhất với bán kính $R$ và độ trễ cực thấp (< 5ms, SD 11: F3.3).
+- **Tính toán biểu phí linh hoạt (Strategy Pattern):** Lưu trữ cấu hình tham số công thức giá $p = ((c_d \cdot d + c_t \cdot t) \cdot s + c_m) \cdot \eta \cdot (1 + T)$ (SD 09: F3.1).
+- **Chuẩn hóa Naming:** Toàn bộ Document fields sử dụng định dạng `snake_case` khớp với các thuộc tính `[BsonElement]` trong mã nguồn C#.
+
+---
 
 ### 3.2. Cấu trúc Collections chi tiết
 
 #### Collection `Drivers`
+Lưu trữ hồ sơ tài xế và vị trí không gian địa lý thời gian thực:
 ```json
 {
-  "_id": "ObjectId",
+  "_id": "ObjectId('6706850a1234567890abcdef')",
   "driver_id": "c1f7b7d8-21d4-4e2b-a48e-2e457e5b1234",
-  "name": "Nguyen Van A",
+  "name": "Nguyễn Văn Tài Xế",
   "phone": "0901234567",
   "vehicle": {
     "make": "Honda",
-    "model": "Vision",
+    "model": "Air Blade",
     "license_plate": "59-A1 123.45",
-    "type": "Bike" // Bike, Car4, Car7
+    "type": "Bike" // "Bike", "Car4", "Car7"
   },
   "is_active": true,
   "is_available": true,
-  "rating": 4.9,
+  "rating": 4.95,
   "location": {
     "type": "Point",
     "coordinates": [106.682145, 10.762887] // [Kinh độ (Longitude), Vĩ độ (Latitude)]
   },
-  "last_location_updated_at": "2026-10-10T06:30:00Z"
+  "last_location_updated_at": "2026-10-18T12:30:00Z"
 }
 ```
 **Chỉ mục (Indexes):**
-- Index 1: `{ "driver_id": 1 }` (Unique)
-- Index 2: `{ "location": "2dsphere" }` (**Bắt buộc cho truy vấn tìm tài xế gần nhất**)
-- Index 3: `{ "is_active": 1, "is_available": 1, "vehicle.type": 1 }` (Compound Index lọc nhanh tài xế sẵn sàng)
+1. `{ "driver_id": 1 }` (Unique Index - tra cứu nhanh theo mã tài xế).
+2. `{ "location": "2dsphere" }` (**Chỉ mục không gian địa lý bắt buộc** cho truy vấn `$nearSphere` tại SD 11: F3.3).
+3. `{ "is_active": 1, "is_available": 1, "vehicle.type": 1 }` (Compound Index lọc nhanh tài xế sẵn sàng nhận cuốc).
 
-#### Collection `PricingConfigs` (Biểu phí cấu hình)
-Lưu các tham số cho công thức tính giá:
-$$p = ((c_d \cdot d + c_t \cdot t) \cdot s + c_m) \cdot \eta \cdot (1 + T)$$
+---
+
+#### Collection `PricingConfigs` (Biểu phí cấu hình cơ sở)
+Cung cấp các tham số đầu vào cho Strategy Pattern tại SD 09: F3.1:
 ```json
 {
-  "_id": "ObjectId",
+  "_id": "ObjectId('6706850a1234567890abcde1')",
   "vehicle_type": "Bike",
-  "base_distance_rate": 10000.0, // c_d (đồng/km)
-  "base_time_rate": 1000.0,     // c_t (đồng/phút)
-  "base_toll_fee": 0.0,         // c_m (phí phụ mặc định)
-  "tax_rate": 0.10,             // T (10% VAT)
+  "base_distance_rate": 10000.0, // c_d: 10,000 VND / km
+  "base_time_rate": 1000.0,      // c_t: 1,000 VND / phút
+  "base_toll_fee": 0.0,          // c_m: Phí phụ cầu đường mặc định
+  "tax_rate": 0.10,              // T: Thuế VAT 10%
+  "promo_multiplier": 1.0,       // η: Hệ số khuyến mại (1.0 = không giảm, 0.9 = giảm 10%)
   "is_active": true,
   "effective_from": "2026-01-01T00:00:00Z"
 }
 ```
+**Chỉ mục:** `{ "vehicle_type": 1, "is_active": 1 }` (Tra cứu nhanh biểu phí hiện hành).
 
-#### Collection `SurgeZones` (Khu vực giá động)
+---
+
+#### Collection `SurgeZones` (Vùng phụ trội giá động)
+Định nghĩa đa giác không gian địa lý để xác định hệ số nhân giá động $s$ theo khu vực cao điểm:
 ```json
 {
-  "_id": "ObjectId",
-  "zone_name": "Quan 1 Cao Diem",
-  "surge_multiplier": 1.4, // s: hệ số giá động
+  "_id": "ObjectId('6706850a1234567890abcde2')",
+  "zone_name": "Khu vực Chợ Bến Thành - Quận 1",
+  "surge_multiplier": 1.3, // s: Hệ số giá động cao điểm
   "boundary": {
     "type": "Polygon",
     "coordinates": [
@@ -225,68 +292,79 @@ $$p = ((c_d \cdot d + c_t \cdot t) \cdot s + c_m) \cdot \eta \cdot (1 + T)$$
     ]
   },
   "is_active": true,
-  "expires_at": "2026-10-10T12:00:00Z"
+  "expires_at": "2026-10-18T18:00:00Z"
 }
 ```
-**Chỉ mục:** `{ "boundary": "2dsphere" }` để xác định tọa độ đón xe có nằm trong vùng nhân hệ số giá $s$ hay không.
+**Chỉ mục:** `{ "boundary": "2dsphere" }` (Hỗ trợ truy vấn `$geoIntersects` kiểm tra tọa độ đón có nằm trong vùng Surge hay không).
+
+---
 
 #### Collection `TripQuotes` (Lưu trữ báo giá tạm)
-Lưu báo giá để Rider xác nhận trong vòng 5–10 phút:
+Lưu báo giá cước tính toán được tại SD 09: F3.1 để khách xác nhận trong 10 phút:
 ```json
 {
   "_id": "6a9e1e3e-4fa0-459f-bb24-9b2f6efc8721",
   "rider_id": "b2f56789-9876-4321-aaaa-111122223333",
-  "distance_km": 5.2,
-  "estimated_duration_minutes": 15,
-  "surge_multiplier": 1.2,
-  "toll_fee": 0.0,
-  "discount_rate": 0.9, // η: giảm giá 10%
-  "tax_rate": 0.1,
+  "vehicle_type": "Bike",
+  "distance_km": 4.8,
+  "estimated_duration_minutes": 14,
+  "pricing_breakdown": {
+    "distance_cost": 48000.0,
+    "time_cost": 14000.0,
+    "surge_multiplier": 1.3,
+    "toll_fee": 0.0,
+    "discount_rate": 1.0,
+    "tax_rate": 0.10
+  },
   "total_fare": 65000.0,
-  "created_at": "2026-10-10T06:30:00Z",
-  "expires_at": "2026-10-10T06:40:00Z"
+  "created_at": "2026-10-18T12:30:00Z",
+  "expires_at": "2026-10-18T12:40:00Z"
 }
 ```
-**Chỉ mục:** TTL Index trên trường `expires_at` để tự động dọn dẹp các báo giá hết hạn.
+**Chỉ mục:** TTL Index trên trường `expires_at` (`{ "expires_at": 1 }, { expireAfterSeconds: 0 }`) giúp MongoDB tự động xóa bản ghi báo giá sau khi quá hạn 10 phút.
 
 ---
 
-## 4. Chi tiết CSDL Payment Service (PostgreSQL - `PayDB`)
+## 4. Chi Tiết CSDL Payment Service (PostgreSQL - `PayDB`)
 
 ### 4.1. Mục đích & Lý do chọn
-- Xử lý các giao dịch tiền tệ đòi hỏi độ chính xác tuyệt đối.
-- Áp dụng mô hình **Sổ cái kép (Double-entry Bookkeeping)**: Đảm bảo dòng tiền vào và ra luôn cân bằng ($\sum \text{Debit} = \sum \text{Credit}$), phục vụ đối soát, kiểm toán tài chính (Auditing).
-- Hỗ trợ **Idempotency**: Ngăn chặn tình trạng trừ tiền hai lần khi mạng chập chờn hoặc retry từ client/broker.
-- Tuân thủ bảo mật thanh toán: **Không lưu số thẻ/CVV**, chỉ lưu Token được mã hóa từ cổng thanh toán đối tác (Momo, VNPay, Stripe).
+- **Hệ thống Kế toán Sổ cái kép (Double-entry Ledger):** Quản lý tiền bạc bắt buộc tính toàn vẹn tuyệt đối. Mọi biến động số dư phải được ghi thành các cặp bút toán Nợ (Debit) và Có (Credit) bất biến, đảm bảo $\sum \text{Debit} = \sum \text{Credit}$ (SD 12: F4.1).
+- **Kiểm soát trùng lặp Idempotency:** Bảng `idempotency_records` bảo đảm 100% không bao giờ xảy ra tình trạng trừ tiền 2 lần khi client bấm thanh toán nhiều lần hoặc mạng chập chờn (SD 12, SD 13).
+- **Chuẩn bảo mật PCI-DSS (Tokenization):** Bảng `payment_tokens` chỉ lưu Token an toàn do cổng thanh toán (Momo/Stripe) cấp, không lưu số thẻ tín dụng hay mã CVV (SD 15: F4.4).
+- **Giao dịch bồi thường Saga (Compensating Transaction):** Lưu vết chi tiết để thực hiện bút toán đảo sổ cái khi cần hoàn tiền (SD 14: F4.3).
+
+---
 
 ### 4.2. Sơ đồ thực thể ERD (PostgreSQL)
 
 ```mermaid
 erDiagram
-    Accounts ||--o{ LedgerEntries : "has entries"
-    Transactions ||--o{ LedgerEntries : "contains double-entry rows"
+    accounts ||--o{ ledger_entries : "participates in ledger"
+    transactions ||--o{ ledger_entries : "contains entries"
     
-    Accounts {
+    accounts {
         uuid id PK
         uuid owner_id "Indexed"
         varchar owner_type "Rider, Driver, Platform"
-        varchar account_type "Wallet, Revenue, Escrow"
-        varchar currency "VND, USD"
+        varchar account_type "WalletLiability, PlatformRevenue, EscrowHolding"
+        varchar currency "VND"
         numeric balance "Precision 18, Scale 2"
         timestamptz created_at
         timestamptz updated_at "Nullable"
     }
 
-    Transactions {
+    transactions {
         uuid id PK
         uuid trip_id "Nullable, Indexed"
-        varchar transaction_type "RidePayment, PlatformFee, Refund"
+        varchar transaction_type "RidePayment, PlatformFee, DriverPayout, Refund"
         numeric total_amount "Check > 0"
+        varchar status "Success, PaymentPending, Failed, Refunded"
         varchar description
+        text error_detail "Nullable"
         timestamptz created_at
     }
 
-    LedgerEntries {
+    ledger_entries {
         bigserial id PK
         uuid transaction_id FK "Indexed"
         uuid account_id FK "Indexed"
@@ -295,16 +373,17 @@ erDiagram
         timestamptz created_at
     }
 
-    PaymentTokens {
+    payment_tokens {
         uuid id PK
         uuid user_id "Indexed"
         varchar provider "Momo, VNPay, Stripe"
         varchar token
+        varchar masked_token
         boolean is_default
         timestamptz created_at
     }
 
-    IdempotencyRecords {
+    idempotency_records {
         varchar idempotency_key PK
         varchar request_hash
         varchar status "Processing, Success, Failed"
@@ -312,78 +391,136 @@ erDiagram
         timestamptz created_at
         timestamptz expires_at
     }
+
+    outbox_messages {
+        uuid id PK
+        varchar event_type
+        text payload "JSON"
+        timestamptz created_at
+        timestamptz processed_at "Nullable, Indexed"
+        text error "Nullable"
+    }
 ```
+
+---
 
 ### 4.3. Bảng dữ liệu chi tiết
 
 #### Bảng `accounts` (Tài khoản ví / sàn)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID` | PK | Khóa chính tài khoản |
-| `owner_id` | `UUID` | NOT NULL, Index | Mã chủ sở hữu (RiderId, DriverId, hoặc PlatformId) |
-| `owner_type` | `VARCHAR(50)` | NOT NULL | Phân loại: `Rider`, `Driver`, `Platform` |
-| `account_type` | `VARCHAR(50)` | NOT NULL | Loại tài khoản: `Wallet_Liability`, `Platform_Revenue`, `Escrow_Holding` |
-| `currency` | `VARCHAR(3)` | NOT NULL, DEFAULT 'VND'| Đơn vị tiền tệ |
-| `balance` | `NUMERIC(18, 2)` | NOT NULL, DEFAULT 0.00| Số dư hiện tại |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm tạo |
-| `updated_at` | `TIMESTAMPTZ` | NULL | Thời điểm cập nhật cuối |
-
-#### Bảng `transactions` (Giao dịch tài chính)
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | PK | Khóa chính giao dịch |
-| `trip_id` | `UUID` | NULL, Index | Mã chuyến đi liên quan |
-| `transaction_type` | `VARCHAR(50)` | NOT NULL | Loại giao dịch: `RidePayment`, `PlatformCommission`, `Refund` |
-| `total_amount` | `NUMERIC(18, 2)` | NOT NULL, CHECK > 0 | Tổng số tiền giao dịch |
-| `description` | `VARCHAR(255)` | NOT NULL | Nội dung chi tiết giao dịch |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm thực hiện |
-
-#### Bảng `ledger_entries` (Sổ cái ghi kép)
-*Mỗi giao dịch thanh toán cuốc xe ví dụ 100,000 VND gồm:*
-1. **Debit** Rider Wallet: 100,000 VND
-2. **Credit** Driver Wallet: 80,000 VND
-3. **Credit** Platform Revenue: 20,000 VND
-$\Rightarrow \sum Debit (100,000) = \sum Credit (80,000 + 20,000)$.
-
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | `BIGSERIAL` | PK | Khóa chính tự tăng |
-| `transaction_id` | `UUID` | NOT NULL, FK (`transactions.id`), Index | Thuộc giao dịch nào |
-| `account_id` | `UUID` | NOT NULL, FK (`accounts.id`), Index | Tài khoản ghi nhận |
-| `entry_type` | `VARCHAR(10)` | NOT NULL, CHECK in (`Debit`, `Credit`) | Bút toán Nợ hoặc Có |
-| `amount` | `NUMERIC(18, 2)` | NOT NULL, CHECK > 0 | Số tiền ghi nhận |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm ghi sổ |
-
-#### Bảng `payment_tokens` (Phương thức thanh toán đã liên kết)
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | PK | Khóa chính phương thức |
-| `user_id` | `UUID` | NOT NULL, Index | Mã người dùng (Rider) |
-| `provider` | `VARCHAR(50)` | NOT NULL | Đơn vị cổng: `Momo`, `VNPay`, `Stripe` |
-| `token` | `VARCHAR(255)` | NOT NULL | Mã token bảo mật đã tokenize |
-| `is_default` | `BOOLEAN` | NOT NULL, DEFAULT FALSE | Phương thức mặc định |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm liên kết |
-
-#### Bảng `idempotency_records` (Kiểm soát trùng lặp)
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `idempotency_key` | `VARCHAR(255)` | PK | Khóa Idempotency do client gửi trong header |
-| `request_hash` | `VARCHAR(255)` | NOT NULL | Hash nội dung request để phát hiện sai khác payload |
-| `status` | `VARCHAR(50)` | NOT NULL | Trạng thái: `Processing`, `Success`, `Failed` |
-| `response_payload` | `TEXT` | NULL | Kết quả JSON trả về để phản hồi tức thì cho retry |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm nhận yêu cầu |
-| `expires_at` | `TIMESTAMPTZ` | NOT NULL, Index | Thời điểm hết hạn khóa |
+| `id` | `UUID` | PK | Khóa chính tài khoản tài chính |
+| `owner_id` | `UUID` | NOT NULL, Index | Mã chủ sở hữu (`RiderId`, `DriverId`, hoặc `PlatformId`) |
+| `owner_type` | `VARCHAR(50)` | NOT NULL | Phân loại chủ sở hữu: `Rider`, `Driver`, `Platform` |
+| `account_type` | `VARCHAR(50)` | NOT NULL | Loại tài khoản kế toán: `WalletLiability`, `PlatformRevenue`, `EscrowHolding` |
+| `currency` | `VARCHAR(3)` | NOT NULL, DEFAULT 'VND' | Đơn vị tiền tệ chuẩn ISO |
+| `balance` | `NUMERIC(18, 2)` | NOT NULL, DEFAULT 0.00 | Số dư khả dụng hiện tại |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm khởi tạo tài khoản |
+| `updated_at` | `TIMESTAMPTZ` | NULL | Thời điểm cập nhật số dư cuối cùng |
 
 ---
 
-## 5. Tổng hợp Port, Connection String & Cấu hình Docker
+#### Bảng `transactions` (Giao dịch tài chính)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả & Ánh xạ Sơ đồ trình tự |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK | Khóa chính giao dịch |
+| `trip_id` | `UUID` | NULL, Index | Mã cuốc xe liên quan |
+| `transaction_type` | `VARCHAR(50)` | NOT NULL | Loại giao dịch: `RidePayment`, `PlatformFee`, `DriverPayout`, `Refund` |
+| `total_amount` | `NUMERIC(18, 2)` | NOT NULL, CHECK > 0 | Tổng số tiền phát sinh trong giao dịch |
+| `status` | `VARCHAR(50)` | NOT NULL | Trạng thái giao dịch: `Success` (SD 12), `PaymentPending` (SD 13), `Failed`, `Refunded` (SD 14) |
+| `description` | `VARCHAR(255)` | NOT NULL | Nội dung diễn giải giao dịch |
+| `error_detail` | `TEXT` | NULL | Ghi nhận nguyên nhân lỗi nếu thanh toán bị gián đoạn (SD 13: F4.2) |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm phát sinh giao dịch |
 
-Tất cả cơ sở dữ liệu đã được cấu hình sẵn trong [`docker-compose.yml`](../docker-compose.yml):
+---
 
-```yaml
-# docker-compose.yml tóm tắt các port:
-sqlserver: 1433:1433      # SA / Password123!
-mongodb:   27017:27017    # No Auth / DB: MatchDB
-postgres:  5432:5432      # postgres / postgrespassword / DB: PayDB
-rabbitmq:  5672, 15672    # guest / guest
-```
+#### Bảng `ledger_entries` (Sổ cái ghi kép bất biến)
+Bảng ghi nhận từng dòng Nợ/Có. Tuyệt đối **không được UPDATE hay DELETE** dòng đã ghi (Append-only Ledger):
+
+*Ví dụ giao dịch thanh toán cuốc xe $65,000$ VNĐ tại SD 12 (F4.1):*
+1. **Debit** Ví Khách hàng (`RiderWallet`): $65,000$ VNĐ (Giảm nghĩa vụ nợ với khách)
+2. **Credit** Ví Tài xế (`DriverWallet`): $52,000$ VNĐ ($80\%$ doanh thu chuyến đi)
+3. **Credit** Tài khoản Doanh thu Sàn (`PlatformRevenue`): $13,000$ VNĐ ($20\%$ hoa hồng sàn)
+$$\Rightarrow \sum \text{Debit } (65,000) = \sum \text{Credit } (52,000 + 13,000)$$
+
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGSERIAL` | PK | Khóa chính tăng tự động |
+| `transaction_id` | `UUID` | NOT NULL, FK (`transactions.id`), Index | Thuộc giao dịch tài chính nào |
+| `account_id` | `UUID` | NOT NULL, FK (`accounts.id`), Index | Tài khoản ghi nhận biến động |
+| `entry_type` | `VARCHAR(10)` | NOT NULL, CHECK in (`Debit`, `Credit`) | Bản chất bút toán: Nợ hoặc Có |
+| `amount` | `NUMERIC(18, 2)` | NOT NULL, CHECK > 0 | Số tiền ghi nhận |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm ghi sổ bất biến |
+
+---
+
+#### Bảng `payment_tokens` (Phương thức thanh toán đã liên kết - PCI-DSS)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả & Ánh xạ Sơ đồ trình tự |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK | Khóa chính phương thức thanh toán |
+| `user_id` | `UUID` | NOT NULL, Index | Mã hành khách sở hữu (SD 15: F4.4) |
+| `provider` | `VARCHAR(50)` | NOT NULL | Nhà cung cấp: `Momo`, `VNPay`, `Stripe` |
+| `token` | `VARCHAR(255)` | NOT NULL | Mã Token bí mật do cổng thanh toán cấp |
+| `masked_token` | `VARCHAR(50)` | NOT NULL | Chuỗi che mờ hiển thị UI an toàn (vd: `**** 5678`) |
+| `is_default` | `BOOLEAN` | NOT NULL, DEFAULT FALSE | Đánh dấu phương thức thanh toán mặc định |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm liên kết |
+
+---
+
+#### Bảng `idempotency_records` (Kiểm soát chống trùng lặp)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả & Ánh xạ Sơ đồ trình tự |
+| :--- | :--- | :--- | :--- |
+| `idempotency_key` | `VARCHAR(255)` | PK | Khóa UUID do client gửi trong header `X-Idempotency-Key` (SD 12, SD 13) |
+| `request_hash` | `VARCHAR(255)` | NOT NULL | Hash nội dung request để phát hiện sai lệch payload |
+| `status` | `VARCHAR(50)` | NOT NULL | Trạng thái xử lý: `Processing`, `Success`, `Failed` |
+| `response_payload` | `TEXT` | NULL | Kết quả JSON lưu trữ để phản hồi tức thì khi có request retry gửi lại |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm tiếp nhận khóa lần đầu |
+| `expires_at` | `TIMESTAMPTZ` | NOT NULL, Index | Thời điểm hết hạn của khóa Idempotency |
+
+---
+
+#### Bảng `outbox_messages` (Transactional Outbox trên PostgreSQL)
+Đảm bảo các sự kiện `PaymentSettledEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent` (SD 12, 13, 14) được bắn sang RabbitMQ một cách đáng tin cậy:
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK | Mã thông điệp |
+| `event_type` | `VARCHAR(255)` | NOT NULL | Tên sự kiện: `PaymentSettledEvent`, `PaymentRefundedEvent` |
+| `payload` | `TEXT` | NOT NULL | Nội dung Event dạng JSON |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm tạo trong transaction |
+| `processed_at` | `TIMESTAMPTZ` | NULL, Index | Thời điểm Outbox Worker gửi thành công lên RabbitMQ |
+| `error` | `TEXT` | NULL | Lỗi chi tiết nếu broker gặp sự cố |
+
+---
+
+## 5. Ma Trận Ánh Xạ CSDL & 15 Sơ Đồ Trình Tự (Traceability Matrix)
+
+Bảng đối chiếu 1:1 chứng minh mọi bảng và collection trong thiết kế CSDL đều phục vụ trực tiếp cho các luồng nghiệp vụ trong tài liệu kiến trúc PDF:
+
+| CSDL | Bảng / Collection | Chức Năng Nghiệp Vụ Phục Vụ | Sơ Đồ Trình Tự Kích Hoạt |
+|:---|:---|:---|:---:|
+| **SQL Server** | `Trips` | Quản lý vòng đời chuyến đi, kiểm soát đồng thời `RowVersion` | **SD 03, SD 04, SD 05, SD 06, SD 07, SD 08** |
+| (`TripDB`) | `TripStatusHistories` | Ghi log Audit mọi lần chuyển đổi trạng thái | **SD 03, SD 04, SD 05, SD 06, SD 07, SD 08** |
+| | `OutboxMessages` | Bắn sự kiện `TripRequestedEvent`, `TripDroppedOffEvent` | **SD 03, SD 06** |
+| **MongoDB** | `Drivers` | Định vị GPS chu kỳ 10s & Truy vấn `$nearSphere` tìm tài xế gần | **SD 10 (F3.2), SD 11 (F3.3)** |
+| (`MatchDB`) | `PricingConfigs` | Biểu phí tham số $c_d, c_t, c_m, T, \eta$ cho Strategy Pattern | **SD 09 (F3.1)** |
+| | `SurgeZones` | Vùng đa giác nhân hệ số giá động $s$ theo khu vực | **SD 09 (F3.1)** |
+| | `TripQuotes` | Lưu báo giá tạm thời kèm TTL index tự hủy sau 10 phút | **SD 09 (F3.1)** |
+| **PostgreSQL** | `accounts` | Quản lý số dư ví Khách hàng, Tài xế và Quỹ doanh thu sàn | **SD 12 (F4.1), SD 14 (F4.3)** |
+| (`PayDB`) | `transactions` | Ghi nhận giao dịch tài chính (`Success`, `PaymentPending`, `Refunded`) | **SD 12, SD 13, SD 14** |
+| | `ledger_entries` | Ghi 3 bút toán Sổ cái kép bất biến ($\sum \text{Debit} = \sum \text{Credit}$) | **SD 12 (F4.1), SD 14 (F4.3)** |
+| | `payment_tokens` | Token hóa thẻ/ví Momo chuẩn PCI-DSS (không lưu CVV/số thẻ) | **SD 15 (F4.4)** |
+| | `idempotency_records` | Khóa chống trừ tiền 2 lần theo header `X-Idempotency-Key` | **SD 12 (F4.1), SD 13 (F4.2)** |
+| | `outbox_messages` | Transactional Outbox bắn `PaymentSettledEvent`, `PaymentRefundedEvent` | **SD 12, SD 14** |
+
+---
+
+## 6. Tổng Hợp Cấu Hình Docker & Connection String
+
+Hạ tầng CSDL đã được đóng gói sẵn trong file [`docker-compose.yml`](../docker-compose.yml):
+
+| Dịch Vụ | Cổng Port | Database Name | Thông Tin Xác Thực (Local) | Chuỗi Kết Nối Chuẩn (.NET) |
+|:---|:---:|:---:|:---|:---|
+| **SQL Server** | `1433:1433` | `TripDB` | `User: sa`<br/>`Password: Password123!` | `Server=localhost,1433;Database=TripDB;User Id=sa;Password=Password123!;TrustServerCertificate=True;` |
+| **MongoDB** | `27017:27017` | `MatchDB` | *No Authentication (Local Dev)* | `mongodb://localhost:27017/MatchDB` |
+| **PostgreSQL** | `5432:5432` | `PayDB` | `User: postgres`<br/>`Password: postgrespassword` | `Host=localhost;Port=5432;Database=PayDB;Username=postgres;Password=postgrespassword;` |
+| **RabbitMQ** | `5672`, `15672` | `/` (vhost) | `User: guest`<br/>`Password: guest` | `amqp://guest:guest@localhost:5672/` |

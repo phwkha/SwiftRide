@@ -2,7 +2,11 @@
 
 Hệ thống đặt xe công nghệ (Ride-Hailing Platform) kết nối Rider (khách hàng) và Driver (tài xế), được xây dựng trên nền tảng **.NET 10** theo kiến trúc **Microservices** và nguyên lý **Polyglot Persistence**.
 
-> Chi tiết tài liệu kiến trúc phần mềm đầy đủ nằm tại: [`docs/RideLite-KienTrucPhanMem.pdf`](docs/RideLite-KienTrucPhanMem.pdf).
+> **Tài liệu đặc tả & Hướng dẫn kỹ thuật:**
+> - Tài liệu kiến trúc gốc: [`docs/RideLite-KienTrucPhanMem.pdf`](docs/RideLite-KienTrucPhanMem.pdf)
+> - Phân rã chức năng & 15 Sơ đồ trình tự: [`docs/FUNCTIONAL_DECOMPOSITION_AND_SEQUENCE_DIAGRAMS.md`](docs/FUNCTIONAL_DECOMPOSITION_AND_SEQUENCE_DIAGRAMS.md)
+> - Thiết kế CSDL chi tiết (SQL Server, MongoDB, PostgreSQL): [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md)
+> - Hợp đồng API 23 Endpoints & Tích hợp Realtime SignalR: [`docs/API_CONTRACT_AND_FE_INTEGRATION.md`](docs/API_CONTRACT_AND_FE_INTEGRATION.md)
 
 ---
 
@@ -156,7 +160,10 @@ Mỗi service được tổ chức theo kiến trúc Clean Architecture / Onion 
 ```text
 SwiftRide/
 ├── docs/                                  # Tài liệu kiến trúc và tài liệu dự án
-│   └── RideLite-KienTrucPhanMem.pdf
+│   ├── RideLite-KienTrucPhanMem.pdf       # Tài liệu kiến trúc phần mềm đặc tả
+│   ├── FUNCTIONAL_DECOMPOSITION_AND_SEQUENCE_DIAGRAMS.md # Phân rã chức năng & 15 Sequence Diagrams
+│   ├── DATABASE_DESIGN.md                 # Thiết kế chi tiết CSDL (TripDB, MatchDB, PayDB)
+│   └── API_CONTRACT_AND_FE_INTEGRATION.md # Hợp đồng 23 APIs & SignalR Realtime Hub
 ├── src/
 │   ├── ApiGateway/                        # Reverse Proxy (YARP) & JWT Auth
 │   ├── TripService/                       # Quản lý chuyến đi (SQL Server)

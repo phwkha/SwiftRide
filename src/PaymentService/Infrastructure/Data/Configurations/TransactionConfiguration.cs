@@ -27,10 +27,19 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
             .HasPrecision(18, 2)
             .IsRequired();
 
+        builder.Property(t => t.Status)
+            .HasColumnName("status")
+            .HasConversion<string>()
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.Property(t => t.Description)
             .HasColumnName("description")
             .HasMaxLength(255)
             .IsRequired();
+
+        builder.Property(t => t.ErrorDetail)
+            .HasColumnName("error_detail");
 
         builder.Property(t => t.CreatedAt).HasColumnName("created_at").IsRequired();
 

@@ -35,6 +35,7 @@ public class TripConfiguration : IEntityTypeConfiguration<Trip>
         builder.Property(t => t.DistanceKm).HasPrecision(8, 2).IsRequired();
         builder.Property(t => t.EstimatedFare).HasPrecision(18, 2).IsRequired();
         builder.Property(t => t.ActualFare).HasPrecision(18, 2).IsRequired(false);
+        builder.Property(t => t.FareConfirmed).HasDefaultValue(false).IsRequired();
 
         builder.Property(t => t.DriverRejectionCount).HasDefaultValue(0);
         builder.Property(t => t.CancellationReason).HasMaxLength(255);

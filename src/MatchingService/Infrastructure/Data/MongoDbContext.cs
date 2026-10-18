@@ -55,5 +55,11 @@ public class MongoDbContext
         var quoteTtlIndex = Builders<TripQuote>.IndexKeys.Ascending(q => q.ExpiresAt);
         await TripQuotes.Indexes.CreateOneAsync(new CreateIndexModel<TripQuote>(
             quoteTtlIndex, new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }));
+
+        // 6. PricingConfigs compound index for active vehicle type search
+        var pricingIndex = Builders<PricingConfig>.IndexKeys
+            .Ascending(p => p.VehicleType)
+            .Ascending(p => p.IsActive);
+        await PricingConfigs.Indexes.CreateOneAsync(new CreateIndexModel<PricingConfig>(pricingIndex));
     }
 }

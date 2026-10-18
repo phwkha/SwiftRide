@@ -18,6 +18,7 @@ public class PaymentTokenConfiguration : IEntityTypeConfiguration<PaymentToken>
 
         builder.Property(t => t.Provider).HasColumnName("provider").HasMaxLength(50).IsRequired();
         builder.Property(t => t.Token).HasColumnName("token").HasMaxLength(255).IsRequired();
+        builder.Property(t => t.MaskedToken).HasColumnName("masked_token").HasMaxLength(50).IsRequired();
         builder.Property(t => t.IsDefault).HasColumnName("is_default").HasDefaultValue(false).IsRequired();
         builder.Property(t => t.CreatedAt).HasColumnName("created_at").IsRequired();
     }

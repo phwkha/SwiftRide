@@ -12,11 +12,17 @@ public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage
 
         builder.HasKey(m => m.Id);
 
-        builder.Property(m => m.OccurredOn).IsRequired();
-        builder.Property(m => m.Type).HasMaxLength(255).IsRequired();
+        builder.Property(m => m.EventType).HasMaxLength(255).IsRequired();
         builder.Property(m => m.Payload).IsRequired();
+        builder.Property(m => m.CreatedAt).IsRequired();
 
-        builder.Property(m => m.ProcessedOn).IsRequired(false);
-        builder.HasIndex(m => m.ProcessedOn);
+        builder.Property(m => m.ProcessedAt).IsRequired(false);
+        builder.HasIndex(m => m.ProcessedAt);
+
+        builder.Property(m => m.Error);
+
+        builder.Ignore(m => m.Type);
+        builder.Ignore(m => m.OccurredOn);
+        builder.Ignore(m => m.ProcessedOn);
     }
 }

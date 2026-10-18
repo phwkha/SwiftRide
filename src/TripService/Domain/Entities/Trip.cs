@@ -24,6 +24,7 @@ public class Trip
     public int EstimatedDurationMinutes { get; set; }
     public decimal EstimatedFare { get; set; }
     public decimal? ActualFare { get; set; }
+    public bool FareConfirmed { get; set; } = false;
     public int DriverRejectionCount { get; set; } = 0;
 
     // Timestamps

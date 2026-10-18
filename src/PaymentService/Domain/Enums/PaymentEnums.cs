@@ -27,3 +27,11 @@ public enum IdempotencyStatus
     Success = 1,
     Failed = 2
 }
+
+public enum TransactionStatus
+{
+    Success = 0,
+    PaymentPending = 1,
+    Failed = 2,
+    Refunded = 3
+}

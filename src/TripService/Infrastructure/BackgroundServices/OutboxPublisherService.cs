@@ -53,8 +53,8 @@ public class OutboxPublisherService : BackgroundService
         var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
 
         var messages = await dbContext.OutboxMessages
-            .Where(m => m.ProcessedOn == null)
-            .OrderBy(m => m.OccurredOn)
+            .Where(m => m.ProcessedAt == null)
+            .OrderBy(m => m.CreatedAt)
             .Take(BatchSize)
             .ToListAsync(stoppingToken);
 
@@ -70,16 +70,16 @@ public class OutboxPublisherService : BackgroundService
                 var payload = JsonSerializer.Deserialize<JsonElement>(message.Payload);
 
                 await publishEndpoint.Publish<object>(
-                    new { message.Type, message.Id, Data = payload },
+                    new { Type = message.EventType, message.Id, Data = payload },
                     context =>
                     {
                         context.MessageId = message.Id;
-                        context.SetRoutingKey(message.Type);
+                        context.SetRoutingKey(message.EventType);
                     },
                     stoppingToken);
 
-                message.ProcessedOn = DateTimeOffset.UtcNow;
-                _logger.LogDebug("Published outbox message {Id} of type {Type}.", message.Id, message.Type);
+                message.ProcessedAt = DateTimeOffset.UtcNow;
+                _logger.LogDebug("Published outbox message {Id} of type {Type}.", message.Id, message.EventType);
             }
             catch (Exception ex)
             {

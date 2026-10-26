@@ -2,11 +2,12 @@
 
 > **Người phụ trách:** Thành viên 1 (Backend Team Lead)  
 > **Nhánh Git làm việc:** `feat/gateway-and-signalr`  
-> **Phạm vi thư mục sở hữu độc quyền:**  
-> - `src/ApiGateway/` (Port `:5000`)  
-> - `src/TripService/Api/Hubs/` (SignalR `TripHub` tích hợp vào cổng `:5105`)  
+> **Phạm vi thư mục sở hữu độc quyền:**
+>
+> - `src/ApiGateway/` (Port `:5000`)
+> - `src/TripService/Api/Hubs/` (SignalR `TripHub` tích hợp vào cổng `:5105`)
 > - `src/Shared.Contracts/` (hoặc file `Contracts.cs` đồng bộ cho cả 4 projects)  
-> **Mục tiêu cốt lõi:** Mở khóa cho đội Frontend và 3 thành viên Backend phát triển song song ngay từ Ngày 1 mà không bị phụ thuộc lẫn nhau.
+>   **Mục tiêu cốt lõi:** Mở khóa cho đội Frontend và 3 thành viên Backend phát triển song song ngay từ Ngày 1 mà không bị phụ thuộc lẫn nhau.
 
 ## 1. Hiện Trạng Mã Nguồn & Cấu Trúc File Cần Tạo
 
@@ -37,6 +38,7 @@ src/
 Để 3 bạn Dev BE còn lại code độc lập mà khi ghép lại khớp 100%, bạn gửi ngay 2 đoạn code chuẩn dưới đây vào nhóm chat (hoặc tạo project `src/Shared.Contracts` và reference vào 4 projects):
 
 ### 2.1. Khung phản hồi chuẩn `ApiResponse<T>`
+
 ```csharp
 namespace SwiftRide.Contracts.Common;
 
@@ -62,6 +64,7 @@ public record ApiResponse<T>(
 ```
 
 ### 2.2. Bộ 12 Integration Event Records cho MassTransit RabbitMQ
+
 Mọi thành viên bắt buộc đặt các record này trong cùng namespace `SwiftRide.Contracts.Events` (MassTransit dựa vào `Namespace + Tên Type` để định tuyến Exchange/Queue giữa các microservices):
 
 ```csharp
@@ -165,6 +168,7 @@ public record TripCompletedEvent(Guid TripId, Guid RiderId, Guid DriverId, decim
 ## 3. Kế Hoạch Triển Khai Chi Tiết Theo Từng Mốc
 
 ### Mốc 1 (Ngày 1 – Ngày 2): Hoàn Thiện `ApiGateway` (:5000) Bàn Giao Cho Frontend
+
 1. **Xây dựng `InMemoryIdentityStore.cs` với đúng GUID cố định của dự án:**
    - `Rider 1`: `11111111-1111-1111-1111-111111111111` (`rider@swiftride.vn` / `Password123!`, Role: `Rider`)
    - `Driver 1`: `22222222-2222-2222-2222-222222222222` (`driver1@swiftride.vn` / `Password123!`, Role: `Driver`)
@@ -197,7 +201,9 @@ public record TripCompletedEvent(Guid TripId, Guid RiderId, Guid DriverId, decim
      - `/payments/{id}/refund` $\to$ `/api/payments/{id}/refund`
 
 ### Mốc 2 (Ngày 3 – Ngày 6): Xây Dựng SignalR `TripHub` (`/hubs/trips`)
+
 1. Tạo `src/TripService/Api/Hubs/TripHub.cs`:
+
    ```csharp
    using Microsoft.AspNetCore.SignalR;
 
@@ -218,17 +224,20 @@ public record TripCompletedEvent(Guid TripId, Guid RiderId, Guid DriverId, decim
            => await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"trip_{tripId}");
    }
    ```
+
 2. Tạo các Consumer đẩy sự kiện SignalR:
    - Khi nhận `TripOfferDispatchedEvent`: gọi `_hubContext.Clients.Group($"driver_{e.DriverId}").SendAsync("ReceiveTripOffer", payload)`.
    - Khi nhận `TripOfferExpiredEvent`: gọi `_hubContext.Clients.Group($"driver_{e.DriverId}").SendAsync("TripOfferExpired", payload)`.
    - Khi nhận `DriverLocationUpdatedEvent`: gọi `_hubContext.Clients.Group($"trip_{e.TripId}").SendAsync("DriverLocationUpdated", payload)`.
 
 ### Mốc 3 (Ngày 7 – Ngày 10): Ghép Nối End-to-End, Rate Limit & Nghiệm Thu
+
 1. Cấu hình `builder.Services.AddRateLimiter(...)` tại `ApiGateway` (Mục 3.1 PDF).
 2. Kiểm tra luồng WebSocket từ FE qua `:5000/hubs/trips` vào `:5105/hubs/trips`.
 3. Chạy kiểm thử toàn bộ 15 Sequence Diagrams cùng 3 thành viên BE và đội FE.
 
 ## 4. Hướng Dẫn Tự Kiểm Thử Độc Lập (Không Cần Đợi 3 Dev Kia)
+
 - Chạy `dotnet run --project src/ApiGateway`.
 - Dùng Postman / `.http` gọi `POST http://localhost:5000/api/auth/login` với `rider@swiftride.vn` / `Password123!`, lấy `accessToken` và gọi `GET http://localhost:5000/api/auth/me` để xác nhận trả về đúng `11111111-1111-1111-1111-111111111111`.
 - Bàn giao ngay cổng `:5000` cho đội Frontend tích hợp màn hình Đăng nhập.

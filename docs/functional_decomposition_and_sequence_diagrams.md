@@ -404,7 +404,7 @@ sequenceDiagram
     
     Match->>Match: Tính toán cự ly di chuyển d (km) và thời gian ước lượng t (phút)
     Match->>Mongo: db.SurgeZones.findOne({ is_active: true, boundary: { $geoIntersects: { $geometry: pickupPoint } } })
-    Mongo-->>Match: SurgeZone config (hệ số giá động s; mặc định s = 1.0 nếu ngoài vùng cao điểm)
+    Mongo-->>Match: SurgeZone config (hệ số giá động s, mặc định s = 1.0 nếu ngoài vùng cao điểm)
     
     Match->>Mongo: db.PricingConfigs.findOne({ vehicle_type: @type, is_active: true })
     Mongo-->>Match: PricingConfig (giá km cd, giá phút ct, phí phụ toll cm, thuế T, hệ số khuyến mãi η)

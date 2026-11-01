@@ -1,6 +1,92 @@
 @PaymentService_HostAddress = http://localhost:5114
+@riderId = 11111111-1111-1111-1111-111111111111
+@driverId = 22222222-2222-2222-2222-222222222222
+@platformId = 99999999-9999-9999-9999-999999999999
+@tripId = f47ac10b-58cc-4372-a567-0e02b2c3d479
 
-GET {{PaymentService_HostAddress}}/weatherforecast/
+### 1. So du ban dau: Rider 1 = 500,000
+GET {{PaymentService_HostAddress}}/api/accounts/{{riderId}}
 Accept: application/json
 
+### 2. Thanh toan bang vi 65,000 (Rider -65,000 / Driver +52,000 / San +13,000)
+# @name pay
+POST {{PaymentService_HostAddress}}/api/payments/process
+Content-Type: application/json
+X-Idempotency-Key: test-key-001
+
+{
+  "tripId": "{{tripId}}",
+  "riderId": "{{riderId}}",
+  "driverId": "{{driverId}}",
+  "amount": 65000,
+  "paymentMethod": "Wallet"
+}
+
+### 3. Goi lai CUNG key -> tra ket qua cu, so du khong doi
+POST {{PaymentService_HostAddress}}/api/payments/process
+Content-Type: application/json
+X-Idempotency-Key: test-key-001
+
+{
+  "tripId": "{{tripId}}",
+  "riderId": "{{riderId}}",
+  "driverId": "{{driverId}}",
+  "amount": 65000,
+  "paymentMethod": "Wallet"
+}
+
+### 4. Key khac nhung cung trip -> 409 PAYMENT_DUPLICATE
+POST {{PaymentService_HostAddress}}/api/payments/process
+Content-Type: application/json
+X-Idempotency-Key: test-key-002
+
+{
+  "tripId": "{{tripId}}",
+  "riderId": "{{riderId}}",
+  "driverId": "{{driverId}}",
+  "amount": 65000,
+  "paymentMethod": "Wallet"
+}
+
+### 5. Kiem tra so du sau thanh toan
+GET {{PaymentService_HostAddress}}/api/accounts/{{driverId}}
+
 ###
+GET {{PaymentService_HostAddress}}/api/accounts/{{platformId}}
+
+### 6. Hoan tien Saga -> 3 vi ve so du ban dau
+POST {{PaymentService_HostAddress}}/api/payments/{{pay.response.body.$.data.transactionId}}/refund
+Content-Type: application/json
+
+{
+  "reason": "Saga bu tru do chuyen di gap su co bat kha khang"
+}
+
+### 7. Lien ket nguon tien VNPay (SD 15)
+POST {{PaymentService_HostAddress}}/api/payment-tokens
+Content-Type: application/json
+X-User-Id: {{riderId}}
+
+{
+  "provider": "VNPay",
+  "token": "tok_vnpay_a1b2c3d4",
+  "isDefault": false
+}
+
+### 8. Danh sach nguon tien da lien ket
+GET {{PaymentService_HostAddress}}/api/payment-tokens
+X-User-Id: {{riderId}}
+
+### 9. Thanh toan qua Momo (token mac dinh seed san) -> Debit EscrowHolding
+POST {{PaymentService_HostAddress}}/api/payments/process
+Content-Type: application/json
+X-Idempotency-Key: test-key-momo-001
+
+{
+  "tripId": "0b9b3c2e-7d39-4c9c-9a59-7d0c2f2e1a01",
+  "riderId": "{{riderId}}",
+  "driverId": "{{driverId}}",
+  "amount": 80000,
+  "paymentMethod": "Momo",
+  "paymentTokenId": "e7b0a708-3bb8-4fc1-a589-cf7320b7a8a1"
+}

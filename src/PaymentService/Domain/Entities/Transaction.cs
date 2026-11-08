@@ -8,6 +8,7 @@ public class Transaction
     public Guid? TripId { get; set; }
     public TransactionType TransactionType { get; set; } = TransactionType.RidePayment;
     public decimal TotalAmount { get; set; }
+    public string PaymentMethod { get; set; } = "Wallet"; // Wallet, Momo, VNPay, Stripe
     public TransactionStatus Status { get; set; } = TransactionStatus.Success;
     public string Description { get; set; } = string.Empty;
     public string? ErrorDetail { get; set; }

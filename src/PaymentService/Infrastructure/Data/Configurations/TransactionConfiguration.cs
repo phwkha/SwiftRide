@@ -14,7 +14,12 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.Property(t => t.Id).HasColumnName("id");
 
         builder.Property(t => t.TripId).HasColumnName("trip_id").IsRequired(false);
-        builder.HasIndex(t => t.TripId);
+
+        // Chong thu tien 2 lan cho cung 1 chuyen di o tang vat ly PostgreSQL (SD 12, SD 13)
+        builder.HasIndex(t => t.TripId)
+            .HasDatabaseName("ux_transactions_trip_success")
+            .IsUnique()
+            .HasFilter("\"status\" = 'Success' AND \"transaction_type\" = 'RidePayment'");
 
         builder.Property(t => t.TransactionType)
             .HasColumnName("transaction_type")
@@ -25,6 +30,12 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.Property(t => t.TotalAmount)
             .HasColumnName("total_amount")
             .HasPrecision(18, 2)
+            .IsRequired();
+
+        builder.Property(t => t.PaymentMethod)
+            .HasColumnName("payment_method")
+            .HasMaxLength(50)
+            .HasDefaultValue("Wallet")
             .IsRequired();
 
         builder.Property(t => t.Status)

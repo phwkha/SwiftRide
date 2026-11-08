@@ -18,6 +18,9 @@ public class TripConfiguration : IEntityTypeConfiguration<Trip>
         builder.Property(t => t.DriverId).IsRequired(false);
         builder.HasIndex(t => t.DriverId);
 
+        builder.Property(t => t.QuoteId)
+        .IsRequired(false);
+
         builder.Property(t => t.Status)
             .HasConversion<string>()
             .HasMaxLength(50)
@@ -36,8 +39,14 @@ public class TripConfiguration : IEntityTypeConfiguration<Trip>
         builder.Property(t => t.EstimatedFare).HasPrecision(18, 2).IsRequired();
         builder.Property(t => t.ActualFare).HasPrecision(18, 2).IsRequired(false);
         builder.Property(t => t.FareConfirmed).HasDefaultValue(false).IsRequired();
+        builder.Property(t => t.VehicleType)
+            .HasMaxLength(20)
+            .HasDefaultValue("Bike")
+            .IsRequired();
 
         builder.Property(t => t.DriverRejectionCount).HasDefaultValue(0);
+        builder.Property(t => t.ExcludedDriverIds)
+            .IsRequired(false);
         builder.Property(t => t.CancellationReason).HasMaxLength(255);
 
         builder.Property(t => t.RowVersion)

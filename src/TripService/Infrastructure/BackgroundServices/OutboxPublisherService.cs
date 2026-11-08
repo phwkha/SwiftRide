@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using SwiftRide.Contracts.Events;
 using TripService.Infrastructure.Data;
 
 namespace TripService.Infrastructure.BackgroundServices;
@@ -16,6 +17,10 @@ public class OutboxPublisherService : BackgroundService
     private readonly ILogger<OutboxPublisherService> _logger;
     private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(5);
     private const int BatchSize = 20;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public OutboxPublisherService(
         IServiceScopeFactory scopeFactory,
@@ -66,11 +71,11 @@ public class OutboxPublisherService : BackgroundService
         {
             try
             {
-                // Deserialize payload va publish len RabbitMQ
-                var payload = JsonSerializer.Deserialize<JsonElement>(message.Payload);
+                var (payload, payloadType) = DeserializeEvent(message.EventType, message.Payload);
 
-                await publishEndpoint.Publish<object>(
-                    new { Type = message.EventType, message.Id, Data = payload },
+                await publishEndpoint.Publish(
+                    payload,
+                    payloadType,
                     context =>
                     {
                         context.MessageId = message.Id;
@@ -89,5 +94,28 @@ public class OutboxPublisherService : BackgroundService
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
+    }
+
+    private static (object Payload, Type PayloadType) DeserializeEvent(
+        string eventType,
+        string payload)
+    {
+        var type = eventType switch
+        {
+            nameof(TripRequestedEvent) => typeof(TripRequestedEvent),
+            nameof(TripAcceptedEvent) => typeof(TripAcceptedEvent),
+            nameof(DriverRejectedOfferEvent) => typeof(DriverRejectedOfferEvent),
+            nameof(RetryMatchingCommand) => typeof(RetryMatchingCommand),
+            nameof(TripDroppedOffEvent) => typeof(TripDroppedOffEvent),
+            nameof(TripCancelledEvent) => typeof(TripCancelledEvent),
+            nameof(TripCompletedEvent) => typeof(TripCompletedEvent),
+            _ => throw new InvalidOperationException(
+                $"Unsupported outbox event type '{eventType}'.")
+        };
+
+        var value = JsonSerializer.Deserialize(payload, type, JsonOptions)
+            ?? throw new JsonException($"Outbox payload for '{eventType}' was null.");
+
+        return (value, type);
     }
 }

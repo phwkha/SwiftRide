@@ -7,4 +7,6 @@ public sealed class DroppedOffState : TripState
     public override TripStatus Status => TripStatus.DroppedOff;
 
     public override TripState RequestPayment() => new PaymentPendingState();
+
+    public override TripState ConfirmPayment() => new PaidState();
 }

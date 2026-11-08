@@ -5,6 +5,7 @@
     <Project Path="src/PaymentService/PaymentService.csproj" />
     <Project Path="src/Shared.Contracts/Shared.Contracts.csproj" />
     <Project Path="src/TripService/TripService.csproj" />
+    <Project Path="tests/TripService.Tests/TripService.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/MatchingService.Tests/MatchingService.Tests.csproj" />

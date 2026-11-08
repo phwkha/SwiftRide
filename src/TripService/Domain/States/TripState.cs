@@ -28,6 +28,9 @@ public abstract class TripState
     public virtual TripState ConfirmPayment()
         => throw new InvalidOperationException($"Khong the xac nhan thanh toan o trang thai {Status}");
 
+    public virtual TripState Complete()
+    => throw new InvalidOperationException($"Khong the hoan tat chuyen di o trang thai {Status}");
+
     public virtual TripState Cancel(string? reason = null)
         => throw new InvalidOperationException($"Khong the huy chuyen di o trang thai {Status}");
 

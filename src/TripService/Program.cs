@@ -1,7 +1,12 @@
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using TripService.Api;
+using TripService.Application.Consumers;
 using TripService.Infrastructure.BackgroundServices;
 using TripService.Infrastructure.Data;
+using TripService.Application.Services;
+using TripService.Domain.Interfaces;
+using TripService.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,9 +20,27 @@ var connectionString = builder.Configuration.GetConnectionString("TripDbConnecti
 builder.Services.AddDbContext<TripDbContext>(options =>
     options.UseSqlServer(connectionString));
 
+// Register Trip Repository
+builder.Services.AddScoped<TripRepository>();
+
+builder.Services.AddScoped<ITripReader>(sp =>
+    sp.GetRequiredService<TripRepository>());
+
+builder.Services.AddScoped<ITripWriter>(sp =>
+    sp.GetRequiredService<TripRepository>());
+
+builder.Services.AddScoped<ITripAppService, TripAppService>();
+builder.Services.AddScoped<MatchingFailedConsumer>();
+builder.Services.AddScoped<PaymentSettledConsumer>();
+builder.Services.AddScoped<PaymentFailedConsumer>();
+
 // Register MassTransit with RabbitMQ
 builder.Services.AddMassTransit(x =>
 {
+    x.AddConsumer<MatchingFailedConsumer>();
+    x.AddConsumer<PaymentSettledConsumer>();
+    x.AddConsumer<PaymentFailedConsumer>();
+
     x.UsingRabbitMq((context, cfg) =>
     {
         var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
@@ -32,6 +55,13 @@ builder.Services.AddHostedService<OutboxPublisherService>();
 
 var app = builder.Build();
 
+// Khởi tạo database và thêm dữ liệu mẫu
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<TripDbContext>();
+    await TripDbSeeder.SeedAsync(dbContext);
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -41,5 +71,6 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapGet("/", () => Results.Ok(new { Service = "TripService", Status = "Running" }));
+app.MapTripEndpoints();
 
 app.Run();

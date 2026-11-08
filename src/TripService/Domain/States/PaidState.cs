@@ -5,4 +5,6 @@ namespace TripService.Domain.States;
 public sealed class PaidState : TripState
 {
     public override TripStatus Status => TripStatus.Paid;
+
+    public override TripState Complete() => new CompletedState();
 }

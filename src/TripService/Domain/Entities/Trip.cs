@@ -7,6 +7,7 @@ public class Trip
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid RiderId { get; set; }
     public Guid? DriverId { get; set; }
+    public Guid? QuoteId { get; set; }
     public TripStatus Status { get; set; } = TripStatus.Requested;
 
     // Pickup Location
@@ -25,7 +26,9 @@ public class Trip
     public decimal EstimatedFare { get; set; }
     public decimal? ActualFare { get; set; }
     public bool FareConfirmed { get; set; } = false;
+    public string VehicleType { get; set; } = "Bike";
     public int DriverRejectionCount { get; set; } = 0;
+    public string? ExcludedDriverIds { get; set; }
 
     // Timestamps
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

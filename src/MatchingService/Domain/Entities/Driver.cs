@@ -28,8 +28,17 @@ public class Driver
     [BsonElement("is_available")]
     public bool IsAvailable { get; set; } = true;
 
+    [BsonElement("reserved_trip_id")]
+    public string? ReservedTripId { get; set; }
+
     [BsonElement("rating")]
     public double Rating { get; set; } = 5.0;
+
+    [BsonElement("bearing")]
+    public double? Bearing { get; set; }
+
+    [BsonElement("speed")]
+    public double? Speed { get; set; }
 
     /// <summary>
     /// GeoJSON Point (Longitude, Latitude) for 2dsphere indexing and spatial queries

@@ -97,7 +97,7 @@ public class TripAppServiceTests
         var writer = new Mock<ITripWriter>();
         var service = new TripAppService(writer.Object, ReaderFor(trip).Object);
 
-        var response = await service.CancelTripAsync(trip.Id, "changed plans");
+        var response = await service.CancelTripAsync(trip.Id, RiderId, "changed plans");
 
         Assert.Equal(TripStatus.Cancelled, trip.Status);
         Assert.Equal(200, response.StatusCode);
@@ -109,6 +109,21 @@ public class TripAppServiceTests
     }
 
     [Fact]
+    public async Task CancelTripAsync_WrongCaller_ReturnsForbidden()
+    {
+        var trip = CreateTrip(TripStatus.Requested);
+        var writer = new Mock<ITripWriter>();
+        var service = new TripAppService(writer.Object, ReaderFor(trip).Object);
+        var intruderId = Guid.NewGuid();
+
+        var response = await service.CancelTripAsync(trip.Id, intruderId, "malicious cancel");
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Equal("FORBIDDEN_TRIP_ACCESS", response.Errors?.FirstOrDefault()?.Code);
+        Assert.Equal(TripStatus.Requested, trip.Status);
+    }
+
+    [Fact]
     public async Task DropOffAsync_PickedUpTrip_WritesPaymentEvent()
     {
         var trip = CreateTrip(TripStatus.PickedUp);
@@ -116,7 +131,7 @@ public class TripAppServiceTests
         var writer = new Mock<ITripWriter>();
         var service = new TripAppService(writer.Object, ReaderFor(trip).Object);
 
-        var response = await service.DropOffAsync(trip.Id, "Cash");
+        var response = await service.DropOffAsync(trip.Id, DriverId, "Wallet");
 
         Assert.Equal(TripStatus.DroppedOff, trip.Status);
         Assert.Equal(200, response.StatusCode);
@@ -125,6 +140,21 @@ public class TripAppServiceTests
             It.Is<TripStatusHistory>(h => h.ToStatus == TripStatus.DroppedOff),
             It.Is<OutboxMessage>(m => m.EventType == nameof(TripDroppedOffEvent)),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DropOffAsync_WrongDriver_ReturnsForbidden()
+    {
+        var trip = CreateTrip(TripStatus.PickedUp);
+        trip.DriverId = DriverId;
+        var writer = new Mock<ITripWriter>();
+        var service = new TripAppService(writer.Object, ReaderFor(trip).Object);
+        var wrongDriverId = Guid.NewGuid();
+
+        var response = await service.DropOffAsync(trip.Id, wrongDriverId, "Wallet");
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Equal("FORBIDDEN_TRIP_ACCESS", response.Errors?.FirstOrDefault()?.Code);
     }
 
     private static Mock<ITripReader> ReaderFor(Trip trip)

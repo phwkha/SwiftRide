@@ -63,8 +63,8 @@ services:
     container_name: swiftride-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
     ports:
       - "5672:5672"     # AMQP protocol
       - "15672:15672"   # Management Web UI
@@ -76,6 +76,85 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # 5. Trip Service
+  trip-service:
+    build:
+      context: .
+      dockerfile: src/TripService/Dockerfile
+    container_name: swiftride-trip-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__TripDbConnection: "Server=sqlserver,1433;Database=TripDB;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Password123!};TrustServerCertificate=True;MultipleActiveResultSets=true"
+      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+    ports:
+      - "5105:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # 6. Matching Service
+  matching-service:
+    build:
+      context: .
+      dockerfile: src/MatchingService/Dockerfile
+    container_name: swiftride-matching-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__MongoDbConnection: "mongodb://mongodb:27017"
+      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+    ports:
+      - "5248:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # 7. Payment Service
+  payment-service:
+    build:
+      context: .
+      dockerfile: src/PaymentService/Dockerfile
+    container_name: swiftride-payment-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PaymentDbConnection: "Host=postgres;Port=5432;Database=PayDB;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgrespassword}"
+      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+    ports:
+      - "5114:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # 8. API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/ApiGateway/Dockerfile
+    container_name: swiftride-api-gateway
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Jwt__Secret: "${SWIFTRIDE_JWT_SECRET:-SwiftRide-JWT-Secret-Key-2026-SuperSecure-256Bits!}"
+      ReverseProxy__Clusters__trip-cluster__Destinations__destination1__Address: "http://trip-service:8080"
+      ReverseProxy__Clusters__matching-cluster__Destinations__destination1__Address: "http://matching-service:8080"
+      ReverseProxy__Clusters__payment-cluster__Destinations__destination1__Address: "http://payment-service:8080"
+      Downstream__TripService: "http://trip-service:8080"
+      Downstream__MatchingService: "http://matching-service:8080"
+    ports:
+      - "5000:8080"
+    depends_on:
+      - trip-service
+      - matching-service
+      - payment-service
 
 volumes:
   sqlserver_data:

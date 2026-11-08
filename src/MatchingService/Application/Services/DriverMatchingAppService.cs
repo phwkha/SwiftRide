@@ -1,14 +1,12 @@
 using MatchingService.Application.DTOs;
 using MatchingService.Domain.Entities;
-using MatchingService.Infrastructure.Data;
+using MatchingService.Domain.Interfaces;
 using MassTransit;
-using MongoDB.Driver;
-using MongoDB.Driver.GeoJsonObjectModel;
 using SwiftRide.Contracts.Events;
 
 namespace MatchingService.Application.Services;
 
-public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPublishEndpoint publishEndpoint)
+public sealed class DriverMatchingAppService(IDriverRepository driverRepository, IPublishEndpoint publishEndpoint)
 {
     private static readonly TimeSpan OfferCountdown = TimeSpan.FromSeconds(15);
 
@@ -30,22 +28,13 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
             PricingAppService.ValidateVehicleType(request.VehicleType);
         }
 
-        var pickupPoint = GeoJson.Point(GeoJson.Geographic((double)request.PickupLongitude, (double)request.PickupLatitude));
-        var filters = new List<FilterDefinition<Driver>>
-        {
-            Builders<Driver>.Filter.Eq(driver => driver.IsActive, true),
-            Builders<Driver>.Filter.Eq(driver => driver.IsAvailable, true),
-            Builders<Driver>.Filter.Eq(driver => driver.ReservedTripId, null),
-            Builders<Driver>.Filter.NearSphere(driver => driver.Location, pickupPoint, request.RadiusKm * 1000)
-        };
-        if (!string.IsNullOrWhiteSpace(request.VehicleType))
-        {
-            filters.Add(Builders<Driver>.Filter.Eq(driver => driver.Vehicle.Type, request.VehicleType));
-        }
-
-        var drivers = await mongoContext.Drivers.Find(Builders<Driver>.Filter.And(filters))
-            .Limit(request.Limit)
-            .ToListAsync(cancellationToken);
+        var drivers = await driverRepository.FindNearbyAvailableDriversAsync(
+            request.PickupLatitude,
+            request.PickupLongitude,
+            request.RadiusKm,
+            request.Limit,
+            request.VehicleType,
+            cancellationToken);
 
         return drivers
             .Where(driver => driver.Location is not null)
@@ -65,7 +54,7 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
 
     public async Task<DriverLocationDto?> GetDriverLocationAsync(string driverId, CancellationToken cancellationToken = default)
     {
-        var driver = await mongoContext.Drivers.Find(d => d.DriverId == driverId).FirstOrDefaultAsync(cancellationToken);
+        var driver = await driverRepository.GetByDriverIdAsync(driverId, cancellationToken);
         if (driver?.Location is null)
         {
             return null;
@@ -94,14 +83,10 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
         }
 
         var now = DateTime.UtcNow;
-        var point = GeoJson.Point(GeoJson.Geographic((double)request.Longitude, (double)request.Latitude));
-        var update = Builders<Driver>.Update
-            .Set(driver => driver.Location, point)
-            .Set(driver => driver.Bearing, request.Bearing)
-            .Set(driver => driver.Speed, request.Speed)
-            .Set(driver => driver.LastLocationUpdatedAt, now);
-        var result = await mongoContext.Drivers.UpdateOneAsync(d => d.DriverId == driverId, update, cancellationToken: cancellationToken);
-        if (result.MatchedCount == 0)
+        var updated = await driverRepository.UpdateLocationAsync(
+            driverId, request.Latitude, request.Longitude, request.Bearing, request.Speed, now, cancellationToken);
+
+        if (!updated)
         {
             return false;
         }
@@ -123,22 +108,13 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
 
     public async Task<bool> UpdateAvailabilityAsync(string driverId, bool isAvailable, CancellationToken cancellationToken = default)
     {
-        var filter = Builders<Driver>.Filter.Eq(driver => driver.DriverId, driverId);
-        if (isAvailable)
-        {
-            filter &= Builders<Driver>.Filter.Eq(driver => driver.ReservedTripId, null);
-        }
-
-        var result = await mongoContext.Drivers.UpdateOneAsync(
-            filter,
-            Builders<Driver>.Update.Set(driver => driver.IsAvailable, isAvailable),
-            cancellationToken: cancellationToken);
-        if (result.MatchedCount > 0)
+        var updated = await driverRepository.UpdateAvailabilityAsync(driverId, isAvailable, cancellationToken);
+        if (updated)
         {
             return true;
         }
 
-        if (isAvailable && await mongoContext.Drivers.Find(driver => driver.DriverId == driverId).AnyAsync(cancellationToken))
+        if (isAvailable && await driverRepository.ExistsAsync(driverId, cancellationToken))
         {
             throw new InvalidOperationException("Tài xế đang được giữ cho một chuyến đi khác.");
         }
@@ -170,22 +146,13 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
         PricingAppService.ValidateCoordinates(dropoffLatitude, dropoffLongitude, "dropoff");
         PricingAppService.ValidateVehicleType(vehicleType);
 
-        var point = GeoJson.Point(GeoJson.Geographic((double)pickupLongitude, (double)pickupLatitude));
         var excludedIds = (excludedDriverIds ?? []).Select(id => id.ToString()).ToList();
-        var filter = Builders<Driver>.Filter.And(
-            Builders<Driver>.Filter.Eq(driver => driver.IsActive, true),
-            Builders<Driver>.Filter.Eq(driver => driver.IsAvailable, true),
-            Builders<Driver>.Filter.Eq(driver => driver.ReservedTripId, null),
-            Builders<Driver>.Filter.Eq(driver => driver.Vehicle.Type, vehicleType),
-            Builders<Driver>.Filter.Nin(driver => driver.DriverId, excludedIds),
-            Builders<Driver>.Filter.NearSphere(driver => driver.Location, point, 5000));
-        var update = Builders<Driver>.Update
-            .Set(driver => driver.IsAvailable, false)
-            .Set(driver => driver.ReservedTripId, tripId.ToString());
-        var driver = await mongoContext.Drivers.FindOneAndUpdateAsync(
-            filter,
-            update,
-            new FindOneAndUpdateOptions<Driver> { ReturnDocument = ReturnDocument.After },
+        var driver = await driverRepository.ReserveNearestDriverAsync(
+            pickupLatitude,
+            pickupLongitude,
+            vehicleType,
+            excludedIds,
+            tripId.ToString(),
             cancellationToken);
 
         if (driver is null)
@@ -232,38 +199,16 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
         }
         catch
         {
-            await mongoContext.Drivers.UpdateOneAsync(
-                d => d.DriverId == driver.DriverId && d.ReservedTripId == tripId.ToString(),
-                Builders<Driver>.Update
-                    .Set(d => d.IsAvailable, true)
-                    .Set(d => d.ReservedTripId, null),
-                cancellationToken: CancellationToken.None);
+            await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
             throw;
         }
     }
 
-    public async Task ReleaseDriverAsync(Guid driverId, Guid tripId, CancellationToken cancellationToken = default)
-    {
-        var filter = Builders<Driver>.Filter.And(
-            Builders<Driver>.Filter.Eq(driver => driver.DriverId, driverId.ToString()),
-            Builders<Driver>.Filter.Eq(driver => driver.ReservedTripId, tripId.ToString()));
-        await mongoContext.Drivers.UpdateOneAsync(
-            filter,
-            Builders<Driver>.Update
-                .Set(driver => driver.IsAvailable, true)
-                .Set(driver => driver.ReservedTripId, null),
-            cancellationToken: cancellationToken);
-    }
+    public Task ReleaseDriverAsync(Guid driverId, Guid tripId, CancellationToken cancellationToken = default)
+        => driverRepository.ReleaseDriverAsync(driverId.ToString(), tripId.ToString(), cancellationToken);
 
-    public async Task ReleaseTripReservationAsync(Guid tripId, CancellationToken cancellationToken = default)
-    {
-        await mongoContext.Drivers.UpdateManyAsync(
-            driver => driver.ReservedTripId == tripId.ToString(),
-            Builders<Driver>.Update
-                .Set(driver => driver.IsAvailable, true)
-                .Set(driver => driver.ReservedTripId, null),
-            cancellationToken: cancellationToken);
-    }
+    public Task ReleaseTripReservationAsync(Guid tripId, CancellationToken cancellationToken = default)
+        => driverRepository.ReleaseTripReservationAsync(tripId.ToString(), cancellationToken);
 
     public async Task CancelTripAsync(Guid tripId, Guid? driverId, CancellationToken cancellationToken = default)
     {
@@ -272,15 +217,9 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
             TripId = tripId.ToString(),
             ExpiresAt = DateTime.UtcNow.AddDays(7)
         };
-        await mongoContext.CancelledTrips.ReplaceOneAsync(
-            record => record.TripId == cancellation.TripId,
-            cancellation,
-            new ReplaceOptions { IsUpsert = true },
-            cancellationToken);
+        await driverRepository.UpsertCancelledTripAsync(cancellation, cancellationToken);
 
-        var reservedDrivers = await mongoContext.Drivers
-            .Find(driver => driver.ReservedTripId == cancellation.TripId)
-            .ToListAsync(cancellationToken);
+        var reservedDrivers = await driverRepository.GetDriversReservedForTripAsync(cancellation.TripId, cancellationToken);
         try
         {
             foreach (var driver in reservedDrivers)
@@ -305,6 +244,5 @@ public sealed class DriverMatchingAppService(MongoDbContext mongoContext, IPubli
         => publishEndpoint.Publish(new TripOfferExpiredEvent(tripId, driverId, "Chuyến đi đã bị hủy"), cancellationToken);
 
     private Task<bool> IsTripCancelledAsync(Guid tripId, CancellationToken cancellationToken)
-        => mongoContext.CancelledTrips.Find(record => record.TripId == tripId.ToString())
-            .AnyAsync(cancellationToken);
+        => driverRepository.IsTripCancelledAsync(tripId.ToString(), cancellationToken);
 }

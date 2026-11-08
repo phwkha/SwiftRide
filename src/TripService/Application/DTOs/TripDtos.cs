@@ -43,7 +43,7 @@ public sealed record CreateTripRequest(
 
 public sealed record TripActionRequest(
     string? Reason = null,
-    string PaymentMethod = "Cash");
+    string PaymentMethod = "Wallet");
 
 public sealed record TripDto(
     Guid Id,

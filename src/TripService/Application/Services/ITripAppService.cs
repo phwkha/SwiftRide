@@ -14,11 +14,12 @@ public interface ITripAppService
     Task<ApiResponse<TripDto>> GetTripByIdAsync(Guid tripId, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> AcceptTripAsync(Guid tripId, Guid driverId, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> RejectTripAsync(Guid tripId, Guid driverId, string? reason = null, CancellationToken ct = default);
-    Task<ApiResponse<TripDto>> StartRouteAsync(Guid tripId, CancellationToken ct = default);
-    Task<ApiResponse<TripDto>> PickUpAsync(Guid tripId, CancellationToken ct = default);
+    Task<ApiResponse<TripDto>> StartRouteAsync(Guid tripId, Guid? driverId = null, CancellationToken ct = default);
+    Task<ApiResponse<TripDto>> PickUpAsync(Guid tripId, Guid? driverId = null, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> DropOffAsync(
         Guid tripId,
-        string paymentMethod = "Cash",
+        Guid? driverId = null,
+        string paymentMethod = "Wallet",
         CancellationToken ct = default);
-    Task<ApiResponse<TripDto>> CancelTripAsync(Guid tripId, string? reason = null, CancellationToken ct = default);
+    Task<ApiResponse<TripDto>> CancelTripAsync(Guid tripId, Guid? callerUserId = null, string? reason = null, CancellationToken ct = default);
 }

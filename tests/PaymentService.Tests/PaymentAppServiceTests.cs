@@ -9,6 +9,7 @@ using PaymentService.Domain.Enums;
 using PaymentService.Domain.Exceptions;
 using PaymentService.Domain.Factories;
 using PaymentService.Infrastructure.Data;
+using PaymentService.Infrastructure.Repositories;
 using SwiftRide.Contracts.Events;
 using static PaymentService.Infrastructure.Data.PaymentDbSeeder;
 
@@ -27,7 +28,7 @@ public class PaymentAppServiceTests
     }
 
     private static PaymentAppService CreateService(PaymentDbContext db)
-        => new(db, new PaymentMethodFactory(), NullLogger<PaymentAppService>.Instance);
+        => new(new PaymentRepository(db), new PaymentMethodFactory(), NullLogger<PaymentAppService>.Instance);
 
     private static ProcessPaymentRequest WalletRequest(Guid tripId, decimal amount = 65000m)
         => new(tripId, Rider1Id, Driver1Id, amount, "Wallet");

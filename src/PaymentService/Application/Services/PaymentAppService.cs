@@ -8,6 +8,7 @@ using PaymentService.Domain.Entities;
 using PaymentService.Domain.Enums;
 using PaymentService.Domain.Exceptions;
 using PaymentService.Domain.Factories;
+using PaymentService.Domain.Interfaces;
 using PaymentService.Domain.Services;
 using PaymentService.Infrastructure.Data;
 using SwiftRide.Contracts.Events;
@@ -23,13 +24,13 @@ public class PaymentAppService
     public static readonly Guid PlatformOwnerId = Guid.Parse("99999999-9999-9999-9999-999999999999");
     private const decimal DriverShareRate = 0.80m;
 
-    private readonly PaymentDbContext _db;
+    private readonly IPaymentRepository _repo;
     private readonly PaymentMethodFactory _factory;
     private readonly ILogger<PaymentAppService> _logger;
 
-    public PaymentAppService(PaymentDbContext db, PaymentMethodFactory factory, ILogger<PaymentAppService> logger)
+    public PaymentAppService(IPaymentRepository repo, PaymentMethodFactory factory, ILogger<PaymentAppService> logger)
     {
-        _db = db;
+        _repo = repo;
         _factory = factory;
         _logger = logger;
     }
@@ -49,7 +50,7 @@ public class PaymentAppService
                 $"Phuong thuc thanh toan '{request.PaymentMethod}' khong duoc ho tro.");
 
         // Buoc 1: Idempotency check
-        var record = await _db.IdempotencyRecords.FindAsync([idempotencyKey], ct);
+        var record = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
         if (record is not null)
         {
             if (record.Status == IdempotencyStatus.Success && record.ResponsePayload is not null)
@@ -67,17 +68,17 @@ public class PaymentAppService
         else
         {
             record = new IdempotencyRecord { IdempotencyKey = idempotencyKey, RequestHash = ComputeHash(request) };
-            _db.IdempotencyRecords.Add(record);
+            _repo.AddIdempotencyRecord(record);
         }
 
         try
         {
-            await _db.SaveChangesAsync(ct);
+            await _repo.SaveChangesAsync(ct);
         }
         catch (DbUpdateException)
         {
             // Request khac cung khoa vua INSERT truoc
-            _db.ChangeTracker.Clear();
+            _repo.ClearTracking();
             throw new PaymentException(ErrorCodes.PaymentDuplicate, 409,
                 "Giao dich voi khoa idempotency nay dang duoc xu ly.");
         }
@@ -89,12 +90,12 @@ public class PaymentAppService
         catch
         {
             // Giai phong khoa de lan thu lai (cung khoa) duoc xu ly tiep
-            _db.ChangeTracker.Clear();
-            var failed = await _db.IdempotencyRecords.FindAsync([idempotencyKey], ct);
+            _repo.ClearTracking();
+            var failed = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
             if (failed is not null && failed.Status != IdempotencyStatus.Success)
             {
                 failed.Status = IdempotencyStatus.Failed;
-                await _db.SaveChangesAsync(ct);
+                await _repo.SaveChangesAsync(ct);
             }
             throw;
         }
@@ -103,10 +104,7 @@ public class PaymentAppService
     private async Task<PaymentResponse> SettleAsync(
         ProcessPaymentRequest request, string method, IdempotencyRecord record, CancellationToken ct)
     {
-        var tripAlreadyPaid = await _db.Transactions.AnyAsync(t =>
-            t.TripId == request.TripId
-            && t.TransactionType == TransactionType.RidePayment
-            && t.Status == TransactionStatus.Success, ct);
+        var tripAlreadyPaid = await _repo.IsTripAlreadyPaidAsync(request.TripId, ct);
         if (tripAlreadyPaid)
             throw new PaymentException(ErrorCodes.PaymentDuplicate, 409,
                 "Giao dich cua chuyen di nay da duoc xu ly, khong the tru tien lap.");
@@ -166,8 +164,8 @@ public class PaymentAppService
         ApplyEntry(driverWallet, entries[1]);
         ApplyEntry(platformRevenue, entries[2]);
 
-        _db.Transactions.Add(tx);
-        _db.LedgerEntries.AddRange(entries);
+        _repo.AddTransaction(tx);
+        _repo.AddLedgerEntries(entries);
 
         var response = new PaymentResponse(
             tx.Id, request.TripId, tx.Status.ToString(), method, amount,
@@ -180,7 +178,7 @@ public class PaymentAppService
 
         try
         {
-            await _db.SaveChangesAsync(ct);
+            await _repo.SaveChangesAsync(ct);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException
                                                { SqlState: PostgresErrorCodes.UniqueViolation })
@@ -201,16 +199,13 @@ public class PaymentAppService
     /// </summary>
     public async Task MarkPaymentPendingAsync(TripDroppedOffEvent message, string reason, CancellationToken ct = default)
     {
-        _db.ChangeTracker.Clear();
+        _repo.ClearTracking();
 
-        var pending = await _db.Transactions.FirstOrDefaultAsync(t =>
-            t.TripId == message.TripId
-            && t.TransactionType == TransactionType.RidePayment
-            && t.Status == TransactionStatus.PaymentPending, ct);
+        var pending = await _repo.GetPendingRideTransactionAsync(message.TripId, ct);
 
         if (pending is null)
         {
-            _db.Transactions.Add(new Transaction
+            _repo.AddTransaction(new Transaction
             {
                 TripId = message.TripId,
                 TransactionType = TransactionType.RidePayment,
@@ -226,9 +221,9 @@ public class PaymentAppService
             pending.ErrorDetail = reason;
         }
 
-        var record = await _db.IdempotencyRecords.FindAsync([message.IdempotencyKey], ct);
+        var record = await _repo.GetIdempotencyRecordAsync(message.IdempotencyKey, ct);
         if (record is null)
-            _db.IdempotencyRecords.Add(new IdempotencyRecord
+            _repo.AddIdempotencyRecord(new IdempotencyRecord
             {
                 IdempotencyKey = message.IdempotencyKey,
                 RequestHash = string.Empty,
@@ -239,7 +234,7 @@ public class PaymentAppService
 
         AddOutbox(new PaymentFailedEvent(message.TripId, nameof(TransactionStatus.PaymentPending), reason));
 
-        await _db.SaveChangesAsync(ct);
+        await _repo.SaveChangesAsync(ct);
         _logger.LogWarning("Trip {TripId} payment pending: {Reason}", message.TripId, reason);
     }
 
@@ -247,9 +242,7 @@ public class PaymentAppService
 
     public async Task<RefundPaymentResponse> RefundAsync(Guid transactionId, string reason, CancellationToken ct = default)
     {
-        var original = await _db.Transactions
-            .Include(t => t.LedgerEntries)
-            .FirstOrDefaultAsync(t => t.Id == transactionId, ct)
+        var original = await _repo.GetTransactionWithEntriesAsync(transactionId, ct)
             ?? throw new PaymentException(ErrorCodes.NotFound, 404, "Khong tim thay giao dich.");
 
         if (original.TransactionType != TransactionType.RidePayment || original.Status != TransactionStatus.Success)
@@ -279,18 +272,18 @@ public class PaymentAppService
         LedgerValidator.EnsureBalanced(entries);
 
         var accountIds = entries.Select(e => e.AccountId).Distinct().ToList();
-        var accounts = await _db.Accounts.Where(a => accountIds.Contains(a.Id)).ToDictionaryAsync(a => a.Id, ct);
+        var accounts = await _repo.GetAccountsByIdsAsync(accountIds, ct);
         foreach (var entry in entries)
             ApplyEntry(accounts[entry.AccountId], entry);
 
         original.Status = TransactionStatus.Refunded;
-        _db.Transactions.Add(refundTx);
-        _db.LedgerEntries.AddRange(entries);
+        _repo.AddTransaction(refundTx);
+        _repo.AddLedgerEntries(entries);
 
         AddOutbox(new PaymentRefundedEvent(
             original.Id, original.TripId ?? Guid.Empty, refundTx.Id, original.TotalAmount, refundTx.Description));
 
-        await _db.SaveChangesAsync(ct);
+        await _repo.SaveChangesAsync(ct);
 
         _logger.LogInformation("Refunded tx {TransactionId} with compensating tx {RefundId}.", original.Id, refundTx.Id);
         return new RefundPaymentResponse(original.Id, original.TotalAmount,
@@ -311,7 +304,7 @@ public class PaymentAppService
         if (token.Length is < 4 or > 255)
             throw new PaymentException(ErrorCodes.ValidationError, 422, "Token khong hop le.");
 
-        var existing = await _db.PaymentTokens.Where(t => t.UserId == userId).ToListAsync(ct);
+        var existing = await _repo.GetUserTokensAsync(userId, asNoTracking: false, ct);
         var isDefault = request.IsDefault ?? existing.Count == 0;
         if (isDefault)
             existing.ForEach(t => t.IsDefault = false);
@@ -324,20 +317,15 @@ public class PaymentAppService
             MaskedToken = "**** " + token[^4..],
             IsDefault = isDefault
         };
-        _db.PaymentTokens.Add(entity);
-        await _db.SaveChangesAsync(ct);
+        _repo.AddPaymentToken(entity);
+        await _repo.SaveChangesAsync(ct);
 
         return ToDto(entity);
     }
 
     public async Task<List<PaymentTokenDto>> GetTokensAsync(Guid userId, CancellationToken ct = default)
     {
-        var tokens = await _db.PaymentTokens
-            .AsNoTracking()
-            .Where(t => t.UserId == userId)
-            .OrderByDescending(t => t.IsDefault)
-            .ThenByDescending(t => t.CreatedAt)
-            .ToListAsync(ct);
+        var tokens = await _repo.GetUserTokensAsync(userId, asNoTracking: true, ct);
         return tokens.Select(ToDto).ToList();
     }
 
@@ -346,11 +334,7 @@ public class PaymentAppService
     public async Task<AccountDto> GetAccountAsync(Guid ownerId, CancellationToken ct = default)
     {
         // WalletLiability cho Rider/Driver; PlatformRevenue cho tai khoan San
-        var account = await _db.Accounts
-            .AsNoTracking()
-            .Where(a => a.OwnerId == ownerId && a.AccountType != AccountType.EscrowHolding)
-            .OrderBy(a => a.AccountType)
-            .FirstOrDefaultAsync(ct)
+        var account = await _repo.GetPrimaryAccountByOwnerAsync(ownerId, ct)
             ?? throw new PaymentException(ErrorCodes.NotFound, 404, "Khong tim thay tai khoan.");
 
         return new AccountDto(account.Id, account.OwnerId, account.OwnerType, account.AccountType.ToString(),
@@ -360,17 +344,13 @@ public class PaymentAppService
     // ==================== Helpers ====================
 
     private async Task<Account> GetRequiredAccountAsync(Guid ownerId, AccountType type, CancellationToken ct)
-        => await _db.Accounts.FirstOrDefaultAsync(a => a.OwnerId == ownerId && a.AccountType == type, ct)
+        => await _repo.GetAccountAsync(ownerId, type, ct)
            ?? throw new PaymentException(ErrorCodes.NotFound, 404,
                $"Khong tim thay tai khoan {type} cua {ownerId}.");
 
     private async Task<PaymentToken> ResolveTokenAsync(Guid riderId, string provider, Guid? tokenId, CancellationToken ct)
     {
-        var query = _db.PaymentTokens.Where(t => t.UserId == riderId && t.Provider == provider);
-        var token = tokenId is not null
-            ? await query.FirstOrDefaultAsync(t => t.Id == tokenId, ct)
-            : await query.OrderByDescending(t => t.IsDefault).ThenByDescending(t => t.CreatedAt).FirstOrDefaultAsync(ct);
-
+        var token = await _repo.ResolveTokenAsync(riderId, provider, tokenId, ct);
         return token ?? throw new PaymentException(ErrorCodes.ValidationError, 422,
             $"Khach hang chua lien ket nguon tien {provider}.");
     }
@@ -384,7 +364,7 @@ public class PaymentAppService
 
     private void AddOutbox<TEvent>(TEvent @event) where TEvent : class
     {
-        _db.OutboxMessages.Add(new OutboxMessage
+        _repo.AddOutboxMessage(new OutboxMessage
         {
             EventType = typeof(TEvent).Name,
             Payload = JsonSerializer.Serialize(@event)

@@ -51,17 +51,18 @@ public sealed class DriverRepository(MongoDbContext mongoContext) : IDriverRepos
 
     public async Task<bool> UpdateAvailabilityAsync(string driverId, bool isAvailable, CancellationToken ct = default)
     {
+        var filter = Builders<Driver>.Filter.Eq(driver => driver.DriverId, driverId);
+        if (isAvailable)
+        {
+            filter &= Builders<Driver>.Filter.Eq(driver => driver.ReservedTripId, null);
+        }
+
         var update = Builders<Driver>.Update
             .Set(driver => driver.IsAvailable, isAvailable)
             .Set(driver => driver.LastLocationUpdatedAt, DateTime.UtcNow);
 
-        if (isAvailable)
-        {
-            update = update.Set(driver => driver.ReservedTripId, null);
-        }
-
         var result = await mongoContext.Drivers.UpdateOneAsync(
-            driver => driver.DriverId == driverId,
+            filter,
             update,
             cancellationToken: ct);
 

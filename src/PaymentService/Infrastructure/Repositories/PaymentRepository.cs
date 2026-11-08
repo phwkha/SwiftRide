@@ -33,7 +33,8 @@ public sealed class PaymentRepository(PaymentDbContext db) : IPaymentRepository
 
     public Task<Account?> GetPrimaryAccountByOwnerAsync(Guid ownerId, CancellationToken ct = default)
         => db.Accounts
-            .Where(a => a.OwnerId == ownerId)
+            .AsNoTracking()
+            .Where(a => a.OwnerId == ownerId && a.AccountType != AccountType.EscrowHolding)
             .OrderBy(a => a.AccountType)
             .FirstOrDefaultAsync(ct);
 

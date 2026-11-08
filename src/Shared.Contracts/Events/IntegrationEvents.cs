@@ -93,3 +93,11 @@ public record PaymentFailedEvent(Guid TripId, string Status, string Reason);
 // 12. TripService -> MatchingService (hủy chuyến hoặc hoàn tất để giải phóng tài xế)
 public record TripCancelledEvent(Guid TripId, Guid? DriverId, Guid RiderId, string Reason);
 public record TripCompletedEvent(Guid TripId, Guid RiderId, Guid DriverId, decimal TotalAmount, Guid TransactionId);
+
+// 13. PaymentService -> All (hoàn tiền thành công ở SD 14)
+public record PaymentRefundedEvent(
+    Guid TransactionId,
+    Guid TripId,
+    Guid RefundTransactionId,
+    decimal RefundAmount,
+    string Reason);

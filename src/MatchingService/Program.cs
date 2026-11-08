@@ -3,11 +3,37 @@ using MatchingService.Api;
 using MatchingService.Application.Consumers;
 using MatchingService.Application.DTOs;
 using MatchingService.Application.Services;
+using MatchingService.Domain.Interfaces;
 using MatchingService.Domain.Pricing;
 using MatchingService.Infrastructure.Data;
+using MatchingService.Infrastructure.Repositories;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using SwiftRide.Contracts.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// OpenTelemetry Observability
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation(options => options.RecordException = true)
+            .AddHttpClientInstrumentation()
+            .AddSource("MassTransit")
+            .AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddMeter("MassTransit")
+            .AddMeter("SwiftRide.Metrics")
+            .AddOtlpExporter();
+    });
 
 // Add services to the container.
 builder.Services.AddOpenApi();
@@ -17,6 +43,8 @@ builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddSingleton<MongoDbSeeder>();
 builder.Services.AddSingleton<FareCalculator>();
 builder.Services.AddTransient<IPricingStrategy, StandardPricingStrategy>();
+builder.Services.AddScoped<IPricingRepository, PricingRepository>();
+builder.Services.AddScoped<IDriverRepository, DriverRepository>();
 builder.Services.AddScoped<PricingAppService>();
 builder.Services.AddScoped<DriverMatchingAppService>();
 

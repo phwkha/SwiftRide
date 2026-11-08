@@ -249,11 +249,20 @@ public sealed class TripAppService : ITripAppService
 
     public async Task<ApiResponse<TripDto>> StartRouteAsync(
         Guid tripId,
+        Guid? driverId = null,
         CancellationToken ct = default)
     {
         var trip = await _tripReader.GetByIdAsync(tripId, ct);
         if (trip is null)
             return NotFoundResponse();
+
+        if (driverId.HasValue && driverId.Value != Guid.Empty && trip.DriverId != driverId.Value)
+        {
+            return ApiResponse<TripDto>.Fail(
+                403,
+                "FORBIDDEN_TRIP_ACCESS",
+                "Bạn không phải là tài xế được phân công cho chuyến đi này.");
+        }
 
         return await ApplyTransitionAsync(
             trip,
@@ -265,11 +274,20 @@ public sealed class TripAppService : ITripAppService
 
     public async Task<ApiResponse<TripDto>> PickUpAsync(
         Guid tripId,
+        Guid? driverId = null,
         CancellationToken ct = default)
     {
         var trip = await _tripReader.GetByIdAsync(tripId, ct);
         if (trip is null)
             return NotFoundResponse();
+
+        if (driverId.HasValue && driverId.Value != Guid.Empty && trip.DriverId != driverId.Value)
+        {
+            return ApiResponse<TripDto>.Fail(
+                403,
+                "FORBIDDEN_TRIP_ACCESS",
+                "Bạn không phải là tài xế được phân công cho chuyến đi này.");
+        }
 
         var now = DateTimeOffset.UtcNow;
         return await ApplyTransitionAsync(
@@ -284,12 +302,22 @@ public sealed class TripAppService : ITripAppService
 
     public async Task<ApiResponse<TripDto>> DropOffAsync(
         Guid tripId,
-        string paymentMethod = "Cash",
+        Guid? driverId = null,
+        string paymentMethod = "Wallet",
         CancellationToken ct = default)
     {
         var trip = await _tripReader.GetByIdAsync(tripId, ct);
         if (trip is null)
             return NotFoundResponse();
+
+        if (driverId.HasValue && driverId.Value != Guid.Empty && trip.DriverId != driverId.Value)
+        {
+            return ApiResponse<TripDto>.Fail(
+                403,
+                "FORBIDDEN_TRIP_ACCESS",
+                "Bạn không phải là tài xế được phân công cho chuyến đi này.");
+        }
+
         if (trip.DriverId is null)
             return ApiResponse<TripDto>.Fail(400, "DRIVER_REQUIRED", "A driver is required to drop off a trip.");
         if (string.IsNullOrWhiteSpace(paymentMethod))
@@ -328,12 +356,21 @@ public sealed class TripAppService : ITripAppService
 
     public async Task<ApiResponse<TripDto>> CancelTripAsync(
         Guid tripId,
+        Guid? callerUserId = null,
         string? reason = null,
         CancellationToken ct = default)
     {
         var trip = await _tripReader.GetByIdAsync(tripId, ct);
         if (trip is null)
             return NotFoundResponse();
+
+        if (callerUserId.HasValue && callerUserId.Value != Guid.Empty && trip.RiderId != callerUserId.Value && trip.DriverId != callerUserId.Value)
+        {
+            return ApiResponse<TripDto>.Fail(
+                403,
+                "FORBIDDEN_TRIP_ACCESS",
+                "Bạn không có quyền hủy chuyến đi của người dùng khác.");
+        }
 
         TripState nextState;
         try

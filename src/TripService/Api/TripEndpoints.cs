@@ -117,7 +117,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.StartRouteAsync(id, ct));
+        return ToResult(await service.StartRouteAsync(id, user.Id, ct));
     }
 
     private static async Task<IResult> PickUpAsync(
@@ -130,7 +130,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.PickUpAsync(id, ct));
+        return ToResult(await service.PickUpAsync(id, user.Id, ct));
     }
 
     private static async Task<IResult> DropOffAsync(
@@ -144,7 +144,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.DropOffAsync(id, request?.PaymentMethod ?? "Cash", ct));
+        return ToResult(await service.DropOffAsync(id, user.Id, request?.PaymentMethod ?? "Wallet", ct));
     }
 
     private static async Task<IResult> CancelTripAsync(
@@ -158,7 +158,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.CancelTripAsync(id, request?.Reason, ct));
+        return ToResult(await service.CancelTripAsync(id, user.Id, request?.Reason, ct));
     }
 
     private static IResult ToResult(ApiResponse<TripDto> response)
@@ -170,7 +170,16 @@ public static class TripEndpoints
     {
         if (!httpContext.Request.Headers.TryGetValue("X-User-Id", out var value) ||
             string.IsNullOrWhiteSpace(value))
-            return (fallback, null);
+        {
+            var env = httpContext.RequestServices.GetRequiredService<IHostEnvironment>();
+            if (env.IsDevelopment())
+                return (fallback, null);
+
+            return (Guid.Empty, ToResult(ApiResponse<TripDto>.Fail(
+                401,
+                "UNAUTHORIZED",
+                "Missing X-User-Id header.")));
+        }
 
         return Guid.TryParse(value, out var userId) && userId != Guid.Empty
             ? (userId, null)

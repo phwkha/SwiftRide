@@ -1,5 +1,8 @@
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using TripService.Api;
 using TripService.Application.Consumers;
 using TripService.Api.Hubs;
@@ -10,6 +13,27 @@ using TripService.Domain.Interfaces;
 using TripService.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// OpenTelemetry Observability
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation(options => options.RecordException = true)
+            .AddHttpClientInstrumentation()
+            .AddSource("MassTransit")
+            .AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddMeter("MassTransit")
+            .AddMeter("SwiftRide.Metrics")
+            .AddOtlpExporter();
+    });
 
 // Add services to the container.
 builder.Services.AddOpenApi();

@@ -1,13 +1,36 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using ApiGateway.Aggregation;
 using ApiGateway.Auth;
 using ApiGateway.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using SwiftRide.Contracts.Common;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// OpenTelemetry Observability
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation(options => options.RecordException = true)
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddMeter("SwiftRide.Metrics")
+            .AddOtlpExporter();
+    });
 
 // 1. CORS
 builder.Services.AddCors(options =>
@@ -129,6 +152,12 @@ builder.Services.AddSingleton<InMemoryIdentityStore>();
 builder.Services.AddSingleton<JwtTokenService>(sp =>
     new JwtTokenService(builder.Configuration.GetSection("Jwt")));
 
+// 6. Aggregation HttpClient (5-second activity timeout)
+builder.Services.AddHttpClient("DownstreamAggregator", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+
 var app = builder.Build();
 
 // Middleware pipeline order
@@ -140,6 +169,9 @@ app.UseMiddleware<HeaderInjectionMiddleware>();
 
 // Auth endpoints
 app.MapAuthEndpoints();
+
+// Aggregation endpoints
+app.MapTripAggregationEndpoints();
 
 // YARP reverse proxy
 app.MapReverseProxy();

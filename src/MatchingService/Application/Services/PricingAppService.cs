@@ -1,13 +1,11 @@
 using MatchingService.Application.DTOs;
 using MatchingService.Domain.Entities;
+using MatchingService.Domain.Interfaces;
 using MatchingService.Domain.Pricing;
-using MatchingService.Infrastructure.Data;
-using MongoDB.Driver;
-using MongoDB.Driver.GeoJsonObjectModel;
 
 namespace MatchingService.Application.Services;
 
-public sealed class PricingAppService(MongoDbContext mongoContext, FareCalculator fareCalculator, IPricingStrategy standardPricing)
+public sealed class PricingAppService(IPricingRepository pricingRepository, FareCalculator fareCalculator, IPricingStrategy standardPricing)
 {
     public async Task<TripQuoteResponse> CreateQuoteAsync(TripQuoteRequest request, string riderId, CancellationToken cancellationToken = default)
     {
@@ -16,22 +14,14 @@ public sealed class PricingAppService(MongoDbContext mongoContext, FareCalculato
         ValidateVehicleType(request.VehicleType);
 
         var now = DateTime.UtcNow;
-        var pricing = await mongoContext.PricingConfigs
-            .Find(p => p.VehicleType == request.VehicleType && p.IsActive && p.EffectiveFrom <= now)
-            .SortByDescending(p => p.EffectiveFrom)
-            .FirstOrDefaultAsync(cancellationToken);
+        var pricing = await pricingRepository.GetActivePricingConfigAsync(request.VehicleType, now, cancellationToken);
 
         if (pricing is null)
         {
             throw new KeyNotFoundException($"Không tìm thấy biểu phí đang hoạt động cho {request.VehicleType}.");
         }
 
-        var pickupPoint = GeoJson.Point(GeoJson.Geographic((double)request.PickupLongitude, (double)request.PickupLatitude));
-        var zoneFilter = Builders<SurgeZone>.Filter.And(
-            Builders<SurgeZone>.Filter.Eq(zone => zone.IsActive, true),
-            Builders<SurgeZone>.Filter.Gt(zone => zone.ExpiresAt, now),
-            Builders<SurgeZone>.Filter.GeoIntersects(zone => zone.Boundary, pickupPoint));
-        var surgeZone = await mongoContext.SurgeZones.Find(zoneFilter).FirstOrDefaultAsync(cancellationToken);
+        var surgeZone = await pricingRepository.GetActiveSurgeZoneAsync(request.PickupLatitude, request.PickupLongitude, now, cancellationToken);
         var surgeMultiplier = surgeZone?.SurgeMultiplier ?? 1.0m;
 
         var distanceKm = CalculateRoadDistanceKm(
@@ -72,7 +62,7 @@ public sealed class PricingAppService(MongoDbContext mongoContext, FareCalculato
             ExpiresAt = expiresAt
         };
 
-        await mongoContext.TripQuotes.InsertOneAsync(quote, cancellationToken: cancellationToken);
+        await pricingRepository.SaveQuoteAsync(quote, cancellationToken);
         return new TripQuoteResponse(
             quote.Id,
             quote.DistanceKm,

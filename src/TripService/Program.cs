@@ -2,6 +2,7 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using TripService.Api;
 using TripService.Application.Consumers;
+using TripService.Api.Hubs;
 using TripService.Infrastructure.BackgroundServices;
 using TripService.Infrastructure.Data;
 using TripService.Application.Services;
@@ -12,6 +13,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddOpenApi();
+
+// Add SignalR
+builder.Services.AddSignalR();
 
 // Register SQL Server TripDbContext
 var connectionString = builder.Configuration.GetConnectionString("TripDbConnection")
@@ -40,6 +44,13 @@ builder.Services.AddMassTransit(x =>
     x.AddConsumer<MatchingFailedConsumer>();
     x.AddConsumer<PaymentSettledConsumer>();
     x.AddConsumer<PaymentFailedConsumer>();
+    x.AddConsumer<TripOfferDispatchedConsumer>();
+    x.AddConsumer<TripOfferExpiredConsumer>();
+    x.AddConsumer<DriverLocationUpdatedConsumer>();
+    x.AddConsumer<PaymentSettledSignalRConsumer>();
+    x.AddConsumer<TripAcceptedSignalRConsumer>();
+    x.AddConsumer<TripCancelledSignalRConsumer>();
+    x.AddConsumer<MatchingFailedSignalRConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {
@@ -69,6 +80,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Map SignalR hub
+app.MapHub<TripHub>("/hubs/trips");
 
 app.MapGet("/", () => Results.Ok(new { Service = "TripService", Status = "Running" }));
 app.MapTripEndpoints();

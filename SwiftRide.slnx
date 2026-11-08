@@ -7,4 +7,7 @@
     <Project Path="src/TripService/TripService.csproj" />
     <Project Path="tests/TripService.Tests/TripService.Tests.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MatchingService.Tests/MatchingService.Tests.csproj" />
+  </Folder>
 </Solution>

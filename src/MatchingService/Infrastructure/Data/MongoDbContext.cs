@@ -25,9 +25,10 @@ public class MongoDbContext
     public IMongoCollection<PricingConfig> PricingConfigs => _database.GetCollection<PricingConfig>("PricingConfigs");
     public IMongoCollection<SurgeZone> SurgeZones => _database.GetCollection<SurgeZone>("SurgeZones");
     public IMongoCollection<TripQuote> TripQuotes => _database.GetCollection<TripQuote>("TripQuotes");
+    public IMongoCollection<CancelledTrip> CancelledTrips => _database.GetCollection<CancelledTrip>("CancelledTrips");
 
     /// <summary>
-    /// Ensures 2dsphere and unique indexes exist on collections
+    /// Ensures geospatial, lookup, and TTL indexes exist on collections.
     /// </summary>
     public async Task InitializeIndexesAsync()
     {
@@ -47,19 +48,28 @@ public class MongoDbContext
             .Ascending(d => d.Vehicle.Type);
         await Drivers.Indexes.CreateOneAsync(new CreateIndexModel<Driver>(driverAvailIndex));
 
-        // 4. SurgeZones 2dsphere index on boundary
+        // 4. Driver reservation lookup for cancellation/completion events without a driver id
+        var driverReservationIndex = Builders<Driver>.IndexKeys.Ascending(d => d.ReservedTripId);
+        await Drivers.Indexes.CreateOneAsync(new CreateIndexModel<Driver>(driverReservationIndex));
+
+        // 5. SurgeZones 2dsphere index on boundary
         var zoneIndex = Builders<SurgeZone>.IndexKeys.Geo2DSphere(z => z.Boundary);
         await SurgeZones.Indexes.CreateOneAsync(new CreateIndexModel<SurgeZone>(zoneIndex));
 
-        // 5. TripQuotes TTL index for auto-cleanup
+        // 6. TripQuotes TTL index for auto-cleanup
         var quoteTtlIndex = Builders<TripQuote>.IndexKeys.Ascending(q => q.ExpiresAt);
         await TripQuotes.Indexes.CreateOneAsync(new CreateIndexModel<TripQuote>(
             quoteTtlIndex, new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }));
 
-        // 6. PricingConfigs compound index for active vehicle type search
+        // 7. PricingConfigs compound index for active vehicle type search
         var pricingIndex = Builders<PricingConfig>.IndexKeys
             .Ascending(p => p.VehicleType)
             .Ascending(p => p.IsActive);
         await PricingConfigs.Indexes.CreateOneAsync(new CreateIndexModel<PricingConfig>(pricingIndex));
+
+        // 8. Cancelled-trip tombstones prevent delayed matching events from dispatching cancelled trips
+        var cancelledTripTtlIndex = Builders<CancelledTrip>.IndexKeys.Ascending(trip => trip.ExpiresAt);
+        await CancelledTrips.Indexes.CreateOneAsync(new CreateIndexModel<CancelledTrip>(
+            cancelledTripTtlIndex, new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }));
     }
 }

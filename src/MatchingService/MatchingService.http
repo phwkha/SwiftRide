@@ -1,6 +1,71 @@
 @MatchingService_HostAddress = http://localhost:5248
 
-GET {{MatchingService_HostAddress}}/weatherforecast/
+### Create a quote (Chợ Bến Thành pickup is inside the seeded surge zone)
+POST {{MatchingService_HostAddress}}/api/matching/quote
+Content-Type: application/json
+X-User-Id: 11111111-1111-1111-1111-111111111111
+
+{
+  "pickupLatitude": 10.776889,
+  "pickupLongitude": 106.700806,
+  "dropoffLatitude": 10.762887,
+  "dropoffLongitude": 106.682145,
+  "vehicleType": "Bike"
+}
+
+### Find nearby drivers
+POST {{MatchingService_HostAddress}}/api/matching/find-drivers
+Content-Type: application/json
+
+{
+  "pickupLatitude": 10.7755,
+  "pickupLongitude": 106.699,
+  "vehicleType": "Bike",
+  "radiusKm": 5,
+  "limit": 5
+}
+
+### Read a driver's last GPS location
+GET {{MatchingService_HostAddress}}/api/drivers/22222222-2222-2222-2222-222222222222/location
 Accept: application/json
 
+### Update a driver's GPS location
+PUT {{MatchingService_HostAddress}}/api/drivers/22222222-2222-2222-2222-222222222222/location
+Content-Type: application/json
+
+{
+  "latitude": 10.7755,
+  "longitude": 106.699,
+  "bearing": 180,
+  "speed": 35,
+  "activeTripId": null
+}
+
+### Set driver availability
+PUT {{MatchingService_HostAddress}}/api/drivers/22222222-2222-2222-2222-222222222222/availability
+Content-Type: application/json
+
+{
+  "isAvailable": true
+}
+
+### Simulate a trip request (Development only)
+POST {{MatchingService_HostAddress}}/dev/simulate-trip-requested
+Content-Type: application/json
+
+{
+  "tripId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "riderId": "11111111-1111-1111-1111-111111111111",
+  "pickupLatitude": 10.7755,
+  "pickupLongitude": 106.699,
+  "pickupAddress": "Vị trí tài xế mẫu 1",
+  "dropoffLatitude": 10.762887,
+  "dropoffLongitude": 106.682145,
+  "dropoffAddress": "Quận 5",
+  "vehicleType": "Bike",
+  "distanceKm": 4.8,
+  "estimatedDurationMinutes": 14,
+  "estimatedFare": 65000,
+  "excludedDriverIds": ["22222222-2222-2222-2222-222222222222"]
+}
 ###

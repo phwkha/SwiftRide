@@ -58,7 +58,7 @@ builder.Services.AddCors(options =>
 
 // 2. JWT Authentication
 var jwtSection = builder.Configuration.GetSection("Jwt");
-var secret = jwtSection["Secret"] ?? "SwiftRide-JWT-Secret-Key-2026-SuperSecure-256Bits!";
+var secret = JwtSecretConfiguration.GetRequiredSecret(jwtSection);
 var key = Encoding.UTF8.GetBytes(secret);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

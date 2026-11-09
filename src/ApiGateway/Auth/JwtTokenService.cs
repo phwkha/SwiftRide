@@ -14,7 +14,7 @@ public class JwtTokenService
 
     public JwtTokenService(IConfigurationSection jwtSection)
     {
-        _secret = jwtSection["Secret"] ?? "SwiftRide-JWT-Secret-Key-2026-SuperSecure-256Bits!";
+        _secret = JwtSecretConfiguration.GetRequiredSecret(jwtSection);
         _issuer = jwtSection["Issuer"] ?? "SwiftRide.Gateway";
         _audience = jwtSection["Audience"] ?? "SwiftRide.Client";
         _accessTokenMinutes = int.TryParse(jwtSection["AccessTokenMinutes"], out var mins) ? mins : 15;

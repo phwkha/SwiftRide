@@ -52,6 +52,14 @@ public class MongoDbContext
         var driverReservationIndex = Builders<Driver>.IndexKeys.Ascending(d => d.ReservedTripId);
         await Drivers.Indexes.CreateOneAsync(new CreateIndexModel<Driver>(driverReservationIndex));
 
+        await Drivers.Indexes.CreateOneAsync(new CreateIndexModel<Driver>(
+            driverReservationIndex, new CreateIndexOptions<Driver>
+            {
+                Name = "ux_driver_reserved_trip",
+                Unique = true,
+                PartialFilterExpression = Builders<Driver>.Filter.Type(d => d.ReservedTripId, MongoDB.Bson.BsonType.String)
+            }));
+
         // 5. SurgeZones 2dsphere index on boundary
         var zoneIndex = Builders<SurgeZone>.IndexKeys.Geo2DSphere(z => z.Boundary);
         await SurgeZones.Indexes.CreateOneAsync(new CreateIndexModel<SurgeZone>(zoneIndex));

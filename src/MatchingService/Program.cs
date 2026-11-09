@@ -16,6 +16,12 @@ using SwiftRide.Contracts.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
+foreach (var requiredConnection in new[] { "RabbitMq" })
+{
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(requiredConnection)))
+        throw new InvalidOperationException($"Missing configuration: ConnectionStrings:{requiredConnection}");
+}
+
 // OpenTelemetry Observability
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
@@ -79,7 +85,7 @@ builder.Services.AddMassTransit(x =>
     x.UsingRabbitMq((context, cfg) =>
     {
         var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
-            ?? "amqp://guest:guest@localhost:5672";
+            ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
         cfg.Host(new Uri(rabbitMqConnection));
         cfg.ConfigureEndpoints(context);
     });

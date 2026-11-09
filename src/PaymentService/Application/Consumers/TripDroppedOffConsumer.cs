@@ -49,64 +49,60 @@ public class TripDroppedOffConsumer : IConsumer<TripDroppedOffEvent>
             }
         }
 
-        var request = new ProcessPaymentRequest(msg.TripId, msg.RiderId, msg.DriverId, msg.ActualFare, msg.PaymentMethod);
-
-        for (var attempt = 0; ; attempt++)
+        try
         {
-            try
-            {
-                await _paymentService.ProcessPaymentAsync(request, msg.IdempotencyKey, context.CancellationToken);
-                return;
-            }
-            catch (PaymentException ex) when (ex.Code == ErrorCodes.PaymentDuplicate)
-            {
-                // Message trung lap (at-least-once delivery) hoac chuyen da duoc thanh toan
-                _logger.LogInformation("Skip duplicate TripDroppedOffEvent for trip {TripId}: {Reason}", msg.TripId, ex.Message);
-                return;
-            }
-            catch (PaymentGatewayException ex) when (attempt < MaxRetries)
-            {
-                if (_guard is not null)
-                {
-                    await _guard.ReleaseLockOnFailureAsync(lockKey);
-                }
+            var request = new ProcessPaymentRequest(msg.TripId, msg.RiderId, msg.DriverId, msg.ActualFare, msg.PaymentMethod);
 
-                var delay = BaseRetryDelay * Math.Pow(2, attempt);
-                if (delay > TimeSpan.Zero)
-                    delay += TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250)); // jitter
-                _logger.LogWarning("Payment gateway error for trip {TripId} (attempt {Attempt}/{Max}), retry in {Delay}: {Error}",
-                    msg.TripId, attempt + 1, MaxRetries, delay, ex.Message);
-                await Task.Delay(delay, context.CancellationToken);
-
-                if (_guard is not null)
+            for (var attempt = 0; ; attempt++)
+            {
+                try
                 {
-                    await _guard.AcquireLockAsync(lockKey, TimeSpan.FromHours(24));
+                    await _paymentService.ProcessPaymentAsync(request, msg.IdempotencyKey, context.CancellationToken);
+                    return;
+                }
+                catch (PaymentException ex) when (ex.Code == ErrorCodes.PaymentDuplicate)
+                {
+                    // Message trung lap (at-least-once delivery) hoac chuyen da duoc thanh toan
+                    _logger.LogInformation("Skip duplicate TripDroppedOffEvent for trip {TripId}: {Reason}", msg.TripId, ex.Message);
+                    return;
+                }
+                catch (PaymentGatewayException ex) when (attempt < MaxRetries)
+                {
+                    var delay = BaseRetryDelay * Math.Pow(2, attempt);
+                    if (delay > TimeSpan.Zero)
+                        delay += TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250)); // jitter
+                    _logger.LogWarning("Payment gateway error for trip {TripId} (attempt {Attempt}/{Max}), retry in {Delay}: {Error}",
+                        msg.TripId, attempt + 1, MaxRetries, delay, ex.Message);
+                    await Task.Delay(delay, context.CancellationToken);
+                }
+                catch (PaymentGatewayException ex)
+                {
+                    await _paymentService.MarkPaymentPendingAsync(msg,
+                        $"{ex.Message} sau {MaxRetries} lan retry", context.CancellationToken);
+                    return;
+                }
+                catch (PaymentException ex) when (ex.Code is ErrorCodes.InsufficientBalance or ErrorCodes.ValidationError)
+                {
+                    // Loi nghiep vu khong tu het khi retry -> cho khach thanh toan lai thu cong
+                    await _paymentService.MarkPaymentPendingAsync(msg, ex.Message, context.CancellationToken);
+                    return;
                 }
             }
-            catch (PaymentGatewayException ex)
+        }
+        catch
+        {
+            if (_guard is not null)
             {
-                if (_guard is not null)
+                try
                 {
                     await _guard.ReleaseLockOnFailureAsync(lockKey);
                 }
-                await _paymentService.MarkPaymentPendingAsync(msg,
-                    $"{ex.Message} sau {MaxRetries} lan retry", context.CancellationToken);
-                return;
-            }
-            catch (PaymentException ex) when (ex.Code is ErrorCodes.InsufficientBalance or ErrorCodes.ValidationError)
-            {
-                // Loi nghiep vu khong tu het khi retry -> cho khach thanh toan lai thu cong
-                await _paymentService.MarkPaymentPendingAsync(msg, ex.Message, context.CancellationToken);
-                return;
-            }
-            catch
-            {
-                if (_guard is not null)
+                catch (Exception releaseError)
                 {
-                    await _guard.ReleaseLockOnFailureAsync(lockKey);
+                    _logger.LogError(releaseError, "Failed to release trip payment lock {LockKey}.", lockKey);
                 }
-                throw;
             }
+            throw;
         }
     }
 }

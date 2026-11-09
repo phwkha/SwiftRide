@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TripService.Domain.Entities;
 using TripService.Domain.Enums;
+using TripService.Domain.States;
 using TripService.Infrastructure.Repositories;
 using Xunit;
 
@@ -53,6 +54,7 @@ public class CachedTripRepositoryTests
         Assert.NotNull(result);
         Assert.Equal(tripId, result.Id);
         Assert.Equal(TripStatus.PickedUp, result.Status);
+        Assert.Equal(TripStatus.DroppedOff, TripState.FromStatus(result.Status).DropOff().Status);
         _innerRepoMock.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

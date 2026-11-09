@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using SwiftRide.Contracts;
 using MatchingService.Application.DTOs;
 using MatchingService.Domain.Entities;
 using MatchingService.Domain.Interfaces;
@@ -147,79 +149,103 @@ public sealed class DriverMatchingAppService(
             return;
         }
 
-        PricingAppService.ValidateCoordinates(pickupLatitude, pickupLongitude, "pickup");
-        PricingAppService.ValidateCoordinates(dropoffLatitude, dropoffLongitude, "dropoff");
-        PricingAppService.ValidateVehicleType(vehicleType);
-
-        var excludedIds = (excludedDriverIds ?? []).Select(id => id.ToString()).ToList();
-        var driver = await driverRepository.ReserveNearestDriverAsync(
-            pickupLatitude,
-            pickupLongitude,
-            vehicleType,
-            excludedIds,
-            tripId.ToString(),
-            cancellationToken);
-
-        if (driver is null)
-        {
-            if (await IsTripCancelledAsync(tripId, cancellationToken))
-            {
-                return;
-            }
-
-            await publishEndpoint.Publish(new MatchingFailedEvent(tripId, "Không tìm thấy tài xế khả dụng quanh khu vực"), cancellationToken);
+        if ((await driverRepository.GetDriversReservedForTripAsync(tripId.ToString(), cancellationToken)) is { Count: > 0 })
             return;
-        }
-
-        if (await IsTripCancelledAsync(tripId, cancellationToken))
+        var started = Stopwatch.GetTimestamp();
+        var outcome = "failure";
+        try
         {
-            await ReleaseTripReservationAsync(tripId, CancellationToken.None);
-            return;
-        }
+            PricingAppService.ValidateCoordinates(pickupLatitude, pickupLongitude, "pickup");
+            PricingAppService.ValidateCoordinates(dropoffLatitude, dropoffLongitude, "dropoff");
+            PricingAppService.ValidateVehicleType(vehicleType);
 
-        var now = DateTimeOffset.UtcNow;
-        var driverId = Guid.Parse(driver.DriverId);
+            var excludedIds = (excludedDriverIds ?? []).Select(id => id.ToString()).ToList();
+            var driver = await driverRepository.ReserveNearestDriverAsync(
+                pickupLatitude,
+                pickupLongitude,
+                vehicleType,
+                excludedIds,
+                tripId.ToString(),
+                cancellationToken);
 
-        if (_redisConnection is not null)
-        {
-            var locked = await TryLockDriverForTripAsync(driverId, tripId);
-            if (!locked)
+            if (driver is null)
             {
-                await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
+                if (await IsTripCancelledAsync(tripId, cancellationToken))
+                {
+                    return;
+                }
+
+                if ((await driverRepository.GetDriversReservedForTripAsync(tripId.ToString(), cancellationToken)) is { Count: > 0 })
+                {
+                    outcome = "duplicate";
+                    return;
+                }
                 await publishEndpoint.Publish(new MatchingFailedEvent(tripId, "Không tìm thấy tài xế khả dụng quanh khu vực"), cancellationToken);
                 return;
             }
-        }
-
-        try
-        {
-            await publishEndpoint.Publish(new TripOfferDispatchedEvent(
-                tripId,
-                driverId,
-                pickupAddress,
-                pickupLatitude,
-                pickupLongitude,
-                dropoffAddress,
-                dropoffLatitude,
-                dropoffLongitude,
-                estimatedFare,
-                distanceKm,
-                durationMinutes,
-                (int)OfferCountdown.TotalSeconds,
-                now.Add(OfferCountdown)), cancellationToken);
 
             if (await IsTripCancelledAsync(tripId, cancellationToken))
             {
-                await PublishOfferExpiredAsync(tripId, driverId, cancellationToken);
                 await ReleaseTripReservationAsync(tripId, CancellationToken.None);
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var driverId = Guid.Parse(driver.DriverId);
+
+            if (_redisConnection is not null)
+            {
+                var locked = await TryLockDriverForTripAsync(driverId, tripId);
+                if (!locked)
+                {
+                    await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
+                    await publishEndpoint.Publish(new MatchingFailedEvent(tripId, "Không tìm thấy tài xế khả dụng quanh khu vực"), cancellationToken);
+                    return;
+                }
+            }
+
+            try
+            {
+                await publishEndpoint.Publish(new TripOfferDispatchedEvent(
+                    tripId,
+                    driverId,
+                    pickupAddress,
+                    pickupLatitude,
+                    pickupLongitude,
+                    dropoffAddress,
+                    dropoffLatitude,
+                    dropoffLongitude,
+                    estimatedFare,
+                    distanceKm,
+                    durationMinutes,
+                    (int)OfferCountdown.TotalSeconds,
+                    now.Add(OfferCountdown)), cancellationToken);
+
+                outcome = "success";
+                if (await IsTripCancelledAsync(tripId, cancellationToken))
+                {
+                    outcome = "cancelled";
+                    await PublishOfferExpiredAsync(tripId, driverId, cancellationToken);
+                    await ReleaseTripReservationAsync(tripId, CancellationToken.None);
+                    await ReleaseDriverLockAsync(driverId);
+                }
+            }
+            catch
+            {
                 await ReleaseDriverLockAsync(driverId);
+                await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
+                throw;
             }
         }
         catch
         {
-            await ReleaseDriverLockAsync(driverId);
-            await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
+            outcome = "failure";
             throw;
+        }
+        finally
+        {
+            BusinessMetrics.MatchingResults.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
+            BusinessMetrics.MatchingDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds);
         }
     }
 

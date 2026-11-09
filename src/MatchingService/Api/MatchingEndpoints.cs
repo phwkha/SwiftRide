@@ -67,6 +67,10 @@ public static class MatchingEndpoints
                 return Results.BadRequest(ApiResponse<OperationResponse>.Fail(400, "INVALID_DRIVER_ID", "driver id phải là GUID.", "id", http.TraceIdentifier));
             }
 
+            var accessError = DriverRequestAuthorization.RequireDriver(http, driverId);
+            if (accessError is not null)
+                return accessError;
+
             try
             {
                 var updated = await service.UpdateDriverLocationAsync(driverId.ToString(), request, ct);

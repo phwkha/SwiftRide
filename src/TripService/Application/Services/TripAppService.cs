@@ -24,6 +24,9 @@ public sealed class TripAppService : ITripAppService
         _tripReader = tripReader;
     }
 
+    private static ApiResponse<TripDto> ForbiddenTripResponse()
+        => ApiResponse<TripDto>.Fail(403, "FORBIDDEN_TRIP_ACCESS", "Bạn không có quyền truy cập chuyến đi này.");
+
     public async Task<ApiResponse<TripDto>> CreateTripAsync(
         Guid riderId,
         CreateTripRequest request,
@@ -75,11 +78,15 @@ public sealed class TripAppService : ITripAppService
 
     public async Task<ApiResponse<TripDto>> ConfirmQuoteAsync(
         Guid tripId,
+        Guid callerUserId,
         CancellationToken ct = default)
     {
         var trip = await _tripReader.GetByIdAsync(tripId, ct);
         if (trip is null)
             return NotFoundResponse();
+
+        if (callerUserId == Guid.Empty || trip.RiderId != callerUserId)
+            return ForbiddenTripResponse();
 
         if (trip.Status != TripStatus.Requested)
             return InvalidTransitionResponse("A quote can only be confirmed for a requested trip.");
@@ -123,12 +130,15 @@ public sealed class TripAppService : ITripAppService
 
     public async Task<ApiResponse<TripDto>> GetTripByIdAsync(
         Guid tripId,
+        Guid callerUserId,
         CancellationToken ct = default)
     {
         var trip = await _tripReader.GetByIdAsync(tripId, ct);
-        return trip is null
-            ? NotFoundResponse()
-            : ApiResponse<TripDto>.Ok(TripDto.FromEntity(trip));
+        if (trip is null)
+            return NotFoundResponse();
+        if (callerUserId == Guid.Empty || (trip.RiderId != callerUserId && trip.DriverId != callerUserId))
+            return ForbiddenTripResponse();
+        return ApiResponse<TripDto>.Ok(TripDto.FromEntity(trip));
     }
 
     public async Task<ApiResponse<TripDto>> AcceptTripAsync(

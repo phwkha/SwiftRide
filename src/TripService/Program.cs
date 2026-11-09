@@ -38,8 +38,24 @@ builder.Services.AddOpenTelemetry()
 // Add services to the container.
 builder.Services.AddOpenApi();
 
-// Add SignalR
-builder.Services.AddSignalR();
+// Register Redis Distributed Cache
+var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = redisConn;
+    options.InstanceName = "SwiftRide_";
+});
+
+// Add SignalR with Redis Backplane
+var signalRBuilder = builder.Services.AddSignalR();
+if (!string.IsNullOrEmpty(redisConn))
+{
+    signalRBuilder.AddStackExchangeRedis(redisConn, options =>
+    {
+        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("SwiftRideSignalR");
+    });
+}
 
 // Register SQL Server TripDbContext
 var connectionString = builder.Configuration.GetConnectionString("TripDbConnection")
@@ -48,14 +64,15 @@ var connectionString = builder.Configuration.GetConnectionString("TripDbConnecti
 builder.Services.AddDbContext<TripDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-// Register Trip Repository
+// Register Trip Repository & Decorator
 builder.Services.AddScoped<TripRepository>();
+builder.Services.AddScoped<CachedTripRepository>();
 
 builder.Services.AddScoped<ITripReader>(sp =>
-    sp.GetRequiredService<TripRepository>());
+    sp.GetRequiredService<CachedTripRepository>());
 
 builder.Services.AddScoped<ITripWriter>(sp =>
-    sp.GetRequiredService<TripRepository>());
+    sp.GetRequiredService<CachedTripRepository>());
 
 builder.Services.AddScoped<ITripAppService, TripAppService>();
 builder.Services.AddScoped<MatchingFailedConsumer>();

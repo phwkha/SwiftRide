@@ -2,6 +2,7 @@ using MassTransit;
 using PaymentService.Application.DTOs;
 using PaymentService.Application.Services;
 using PaymentService.Domain.Exceptions;
+using PaymentService.Infrastructure;
 using SwiftRide.Contracts.Events;
 
 namespace PaymentService.Application.Consumers;
@@ -17,11 +18,16 @@ public class TripDroppedOffConsumer : IConsumer<TripDroppedOffEvent>
 
     private readonly PaymentAppService _paymentService;
     private readonly ILogger<TripDroppedOffConsumer> _logger;
+    private readonly RedisIdempotencyGuard? _guard;
 
-    public TripDroppedOffConsumer(PaymentAppService paymentService, ILogger<TripDroppedOffConsumer> logger)
+    public TripDroppedOffConsumer(
+        PaymentAppService paymentService,
+        ILogger<TripDroppedOffConsumer> logger,
+        RedisIdempotencyGuard? guard = null)
     {
         _paymentService = paymentService;
         _logger = logger;
+        _guard = guard;
     }
 
     /// <summary>Do tre giua cac lan retry; test co the gan TimeSpan.Zero.</summary>
@@ -30,6 +36,19 @@ public class TripDroppedOffConsumer : IConsumer<TripDroppedOffEvent>
     public async Task Consume(ConsumeContext<TripDroppedOffEvent> context)
     {
         var msg = context.Message;
+        var lockKey = $"trip-pay-{msg.TripId}";
+
+        // 1. Kiem tra va khoa idempotency nhanh bang Redis (chua toi 1ms)
+        if (_guard is not null)
+        {
+            var acquired = await _guard.AcquireLockAsync(lockKey, TimeSpan.FromHours(24));
+            if (!acquired)
+            {
+                _logger.LogInformation("Redis fast-idempotency: bỏ qua sự kiện thanh toán trùng lặp cho trip {TripId}.", msg.TripId);
+                return;
+            }
+        }
+
         var request = new ProcessPaymentRequest(msg.TripId, msg.RiderId, msg.DriverId, msg.ActualFare, msg.PaymentMethod);
 
         for (var attempt = 0; ; attempt++)
@@ -47,15 +66,29 @@ public class TripDroppedOffConsumer : IConsumer<TripDroppedOffEvent>
             }
             catch (PaymentGatewayException ex) when (attempt < MaxRetries)
             {
+                if (_guard is not null)
+                {
+                    await _guard.ReleaseLockOnFailureAsync(lockKey);
+                }
+
                 var delay = BaseRetryDelay * Math.Pow(2, attempt);
                 if (delay > TimeSpan.Zero)
                     delay += TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250)); // jitter
                 _logger.LogWarning("Payment gateway error for trip {TripId} (attempt {Attempt}/{Max}), retry in {Delay}: {Error}",
                     msg.TripId, attempt + 1, MaxRetries, delay, ex.Message);
                 await Task.Delay(delay, context.CancellationToken);
+
+                if (_guard is not null)
+                {
+                    await _guard.AcquireLockAsync(lockKey, TimeSpan.FromHours(24));
+                }
             }
             catch (PaymentGatewayException ex)
             {
+                if (_guard is not null)
+                {
+                    await _guard.ReleaseLockOnFailureAsync(lockKey);
+                }
                 await _paymentService.MarkPaymentPendingAsync(msg,
                     $"{ex.Message} sau {MaxRetries} lan retry", context.CancellationToken);
                 return;
@@ -65,6 +98,14 @@ public class TripDroppedOffConsumer : IConsumer<TripDroppedOffEvent>
                 // Loi nghiep vu khong tu het khi retry -> cho khach thanh toan lai thu cong
                 await _paymentService.MarkPaymentPendingAsync(msg, ex.Message, context.CancellationToken);
                 return;
+            }
+            catch
+            {
+                if (_guard is not null)
+                {
+                    await _guard.ReleaseLockOnFailureAsync(lockKey);
+                }
+                throw;
             }
         }
     }

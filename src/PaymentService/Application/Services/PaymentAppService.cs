@@ -10,6 +10,7 @@ using PaymentService.Domain.Exceptions;
 using PaymentService.Domain.Factories;
 using PaymentService.Domain.Interfaces;
 using PaymentService.Domain.Services;
+using PaymentService.Infrastructure;
 using PaymentService.Infrastructure.Data;
 using SwiftRide.Contracts.Events;
 
@@ -27,12 +28,18 @@ public class PaymentAppService
     private readonly IPaymentRepository _repo;
     private readonly PaymentMethodFactory _factory;
     private readonly ILogger<PaymentAppService> _logger;
+    private readonly RedisIdempotencyGuard? _idempotencyGuard;
 
-    public PaymentAppService(IPaymentRepository repo, PaymentMethodFactory factory, ILogger<PaymentAppService> logger)
+    public PaymentAppService(
+        IPaymentRepository repo,
+        PaymentMethodFactory factory,
+        ILogger<PaymentAppService> logger,
+        RedisIdempotencyGuard? idempotencyGuard = null)
     {
         _repo = repo;
         _factory = factory;
         _logger = logger;
+        _idempotencyGuard = idempotencyGuard;
     }
 
     // ==================== SD 12, SD 13: Quyet toan so cai kep ====================
@@ -48,6 +55,17 @@ public class PaymentAppService
         var method = PaymentMethods.Normalize(request.PaymentMethod)
             ?? throw new PaymentException(ErrorCodes.ValidationError, 422,
                 $"Phuong thuc thanh toan '{request.PaymentMethod}' khong duoc ho tro.");
+
+        // Buoc 0: Fast Distributed Lock tren Redis chan som request trung truoc khi mo transaction
+        if (_idempotencyGuard is not null)
+        {
+            var lockAcquired = await _idempotencyGuard.AcquireLockAsync(idempotencyKey, TimeSpan.FromHours(24));
+            if (!lockAcquired)
+            {
+                throw new PaymentException(ErrorCodes.PaymentDuplicate, 409,
+                    "Giao dich voi khoa idempotency nay dang duoc xu ly hoac da ton tai.");
+            }
+        }
 
         // Buoc 1: Idempotency check
         var record = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
@@ -89,6 +107,11 @@ public class PaymentAppService
         }
         catch
         {
+            if (_idempotencyGuard is not null)
+            {
+                await _idempotencyGuard.ReleaseLockOnFailureAsync(idempotencyKey);
+            }
+
             // Giai phong khoa de lan thu lai (cung khoa) duoc xu ly tiep
             _repo.ClearTracking();
             var failed = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);

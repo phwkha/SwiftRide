@@ -12,6 +12,7 @@ using PaymentService.Infrastructure.BackgroundServices;
 using PaymentService.Infrastructure.Data;
 using PaymentService.Infrastructure.Repositories;
 using Scalar.AspNetCore;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,6 +41,20 @@ builder.Services.AddOpenTelemetry()
 builder.Services.AddOpenApi();
 builder.Services.AddExceptionHandler<PaymentExceptionHandler>();
 builder.Services.AddProblemDetails();
+
+// Register Redis Distributed Cache and Connection Multiplexer
+var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = redisConn;
+    options.InstanceName = "SwiftRide_";
+});
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(redisConn));
+
+builder.Services.AddSingleton<PaymentService.Infrastructure.RedisIdempotencyGuard>();
 
 // Register PostgreSQL PaymentDbContext
 var connectionString = builder.Configuration.GetConnectionString("PaymentDbConnection")

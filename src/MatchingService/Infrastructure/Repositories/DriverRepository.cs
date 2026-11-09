@@ -94,11 +94,18 @@ public sealed class DriverRepository(MongoDbContext mongoContext) : IDriverRepos
             .Set(driver => driver.ReservedTripId, tripId)
             .Set(driver => driver.LastLocationUpdatedAt, DateTime.UtcNow);
 
-        return await mongoContext.Drivers.FindOneAndUpdateAsync(
-            filter,
-            update,
-            new FindOneAndUpdateOptions<Driver> { ReturnDocument = ReturnDocument.After },
-            ct);
+        try
+        {
+            return await mongoContext.Drivers.FindOneAndUpdateAsync(
+                filter,
+                update,
+                new FindOneAndUpdateOptions<Driver> { ReturnDocument = ReturnDocument.After },
+                ct);
+        }
+        catch (MongoCommandException ex) when (ex.Code == 11000)
+        {
+            return null; // Another delivery already reserved a driver for this trip.
+        }
     }
 
     public async Task ReleaseDriverAsync(string driverId, string tripId, CancellationToken ct = default)

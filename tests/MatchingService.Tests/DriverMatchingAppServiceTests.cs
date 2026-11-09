@@ -12,6 +12,51 @@ public sealed class DriverMatchingAppServiceTests
     private readonly Mock<IPublishEndpoint> _publishEndpointMock = new();
 
     [Fact]
+    public async Task MatchTripAsync_WhenNoDriver_RecordsFailureAndDuration()
+    {
+        var outcomes = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var durations = new System.Collections.Concurrent.ConcurrentBag<double>();
+        using var listener = new System.Diagnostics.Metrics.MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == "SwiftRide.Metrics")
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, state) =>
+        {
+            if (instrument.Name != "swiftride.matching.results") return;
+            foreach (var tag in tags)
+                if (tag.Key == "outcome") outcomes.Add(tag.Value!.ToString()!);
+        });
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, state) =>
+        {
+            if (instrument.Name == "swiftride.matching.duration") durations.Add(value);
+        });
+        listener.Start();
+        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+
+        await service.MatchTripAsync(Guid.NewGuid(), 10m, 106m, "pickup", 11m, 106m, "dropoff", "Bike", 5m, 10, 30000m, null);
+
+        Assert.Contains("failure", outcomes);
+        Assert.Contains(durations, duration => duration >= 0);
+    }
+
+    [Fact]
+    public async Task MatchTripAsync_WhenAlreadyReserved_DoesNotReserveOrPublishAgain()
+    {
+        var tripId = Guid.NewGuid();
+        _driverRepositoryMock.Setup(r => r.GetDriversReservedForTripAsync(tripId.ToString(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { new MatchingService.Domain.Entities.Driver() });
+        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+
+        await service.MatchTripAsync(tripId, 10m, 106m, "pickup", 11m, 106m, "dropoff", "Bike", 5m, 10, 30000m, null);
+
+        _driverRepositoryMock.Verify(r => r.ReserveNearestDriverAsync(It.IsAny<decimal>(), It.IsAny<decimal>(),
+            It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Empty(_publishEndpointMock.Invocations);
+    }
+
+    [Fact]
     public async Task UpdateAvailabilityAsync_WhenDriverAvailableAndNotReserved_ReturnsTrue()
     {
         var driverId = "driver-123";

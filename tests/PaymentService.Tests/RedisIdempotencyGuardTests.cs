@@ -8,6 +8,7 @@ using PaymentService.Application.Services;
 using PaymentService.Domain.Entities;
 using PaymentService.Domain.Enums;
 using PaymentService.Domain.Factories;
+using PaymentService.Domain.Interfaces;
 using PaymentService.Infrastructure;
 using PaymentService.Infrastructure.Data;
 using PaymentService.Infrastructure.Repositories;
@@ -26,6 +27,42 @@ public class RedisIdempotencyGuardTests
     public RedisIdempotencyGuardTests()
     {
         _redisMock.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_dbMock.Object);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProcessPayment_WhenInitialDatabaseOperationFails_ReleasesLockAndAllowsSameKeyRetry(bool failSave)
+    {
+        var repo = new Mock<IPaymentRepository>();
+        var guard = new Mock<RedisIdempotencyGuard>(_redisMock.Object);
+        var locked = false;
+        guard.Setup(g => g.AcquireLockAsync("retry-key", It.IsAny<TimeSpan>()))
+            .ReturnsAsync(() => { if (locked) return false; locked = true; return true; });
+        guard.Setup(g => g.ReleaseLockOnFailureAsync("retry-key"))
+            .Returns(() => { locked = false; return Task.CompletedTask; });
+        var failure = new TimeoutException("database unavailable");
+        if (failSave)
+        {
+            repo.Setup(r => r.GetIdempotencyRecordAsync("retry-key", It.IsAny<CancellationToken>()))
+                .ReturnsAsync((IdempotencyRecord?)null);
+            repo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).ThrowsAsync(failure);
+        }
+        else
+        {
+            repo.Setup(r => r.GetIdempotencyRecordAsync("retry-key", It.IsAny<CancellationToken>()))
+                .ThrowsAsync(failure);
+        }
+        var service = new PaymentAppService(repo.Object, new PaymentMethodFactory(),
+            NullLogger<PaymentAppService>.Instance, guard.Object);
+        var request = new ProcessPaymentRequest(Guid.NewGuid(), Rider1Id, Driver1Id, 50000m, "Wallet");
+
+        for (var attempt = 0; attempt < 2; attempt++)
+            Assert.Same(failure, await Assert.ThrowsAsync<TimeoutException>(
+                () => service.ProcessPaymentAsync(request, "retry-key")));
+
+        guard.Verify(g => g.ReleaseLockOnFailureAsync("retry-key"), Times.Exactly(2));
+        Assert.False(locked);
     }
 
     [Fact]

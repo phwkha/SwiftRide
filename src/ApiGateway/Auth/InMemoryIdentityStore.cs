@@ -10,38 +10,41 @@ public class InMemoryIdentityStore
     private readonly Dictionary<string, (Guid UserId, DateTimeOffset ExpiresAt)> _refreshTokens = new();
     private readonly object _lock = new();
 
-    public InMemoryIdentityStore()
+    public InMemoryIdentityStore(IConfiguration configuration)
     {
+        var demoPassword = configuration["DemoIdentity:Password"];
+        if (string.IsNullOrWhiteSpace(demoPassword))
+            throw new InvalidOperationException("Supply DemoIdentity:Password externally for the demo identity store.");
         var users = new UserRecord[]
         {
             new(
                 Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 "rider@swiftride.vn",
-                HashPassword("Password123!"),
+                HashPassword(demoPassword),
                 "Rider",
                 "Nguyễn Văn Khách Hàng"),
             new(
                 Guid.Parse("22222222-2222-2222-2222-222222222222"),
                 "driver1@swiftride.vn",
-                HashPassword("Password123!"),
+                HashPassword(demoPassword),
                 "Driver",
                 "Nguyễn Văn Tài Xế 1"),
             new(
                 Guid.Parse("33333333-3333-3333-3333-333333333333"),
                 "driver2@swiftride.vn",
-                HashPassword("Password123!"),
+                HashPassword(demoPassword),
                 "Driver",
                 "Trần Văn Tài Xế 2"),
             new(
                 Guid.Parse("44444444-4444-4444-4444-444444444444"),
                 "driver3@swiftride.vn",
-                HashPassword("Password123!"),
+                HashPassword(demoPassword),
                 "Driver",
                 "Lê Văn Tài Xế 3"),
             new(
                 Guid.Parse("99999999-9999-9999-9999-999999999999"),
                 "admin@swiftride.vn",
-                HashPassword("Password123!"),
+                HashPassword(demoPassword),
                 "Admin",
                 "Admin SwiftRide")
         };

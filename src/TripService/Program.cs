@@ -14,6 +14,12 @@ using TripService.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
+foreach (var requiredConnection in new[] { "TripDbConnection", "RabbitMq" })
+{
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(requiredConnection)))
+        throw new InvalidOperationException($"Missing configuration: ConnectionStrings:{requiredConnection}");
+}
+
 // OpenTelemetry Observability
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
@@ -59,7 +65,7 @@ if (!string.IsNullOrEmpty(redisConn))
 
 // Register SQL Server TripDbContext
 var connectionString = builder.Configuration.GetConnectionString("TripDbConnection")
-    ?? "Server=localhost,1433;Database=TripDB;User Id=sa;Password=Password123!;TrustServerCertificate=True;MultipleActiveResultSets=true";
+    ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:TripDbConnection");
 
 builder.Services.AddDbContext<TripDbContext>(options =>
     options.UseSqlServer(connectionString));
@@ -96,7 +102,7 @@ builder.Services.AddMassTransit(x =>
     x.UsingRabbitMq((context, cfg) =>
     {
         var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
-            ?? "amqp://guest:guest@localhost:5672";
+            ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
         cfg.Host(new Uri(rabbitMqConnection));
         cfg.ConfigureEndpoints(context);
     });

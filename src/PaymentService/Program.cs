@@ -16,6 +16,12 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
+foreach (var requiredConnection in new[] { "PaymentDbConnection", "RabbitMq" })
+{
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(requiredConnection)))
+        throw new InvalidOperationException($"Missing configuration: ConnectionStrings:{requiredConnection}");
+}
+
 // OpenTelemetry Observability
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
@@ -58,7 +64,7 @@ builder.Services.AddSingleton<PaymentService.Infrastructure.RedisIdempotencyGuar
 
 // Register PostgreSQL PaymentDbContext
 var connectionString = builder.Configuration.GetConnectionString("PaymentDbConnection")
-    ?? "Host=localhost;Port=5432;Database=PayDB;Username=postgres;Password=postgrespassword";
+    ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:PaymentDbConnection");
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseNpgsql(connectionString));
@@ -76,7 +82,7 @@ builder.Services.AddMassTransit(x =>
     x.UsingRabbitMq((context, cfg) =>
     {
         var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
-            ?? "amqp://guest:guest@localhost:5672";
+            ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
         cfg.Host(new Uri(rabbitMqConnection));
         cfg.ConfigureEndpoints(context);
     });

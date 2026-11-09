@@ -6,14 +6,14 @@ services:
     restart: unless-stopped
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Password123!}"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in the environment}"
       MSSQL_PID: "Developer"
     ports:
       - "1433:1433"
     volumes:
       - sqlserver_data:/var/opt/mssql
     healthcheck:
-      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD:-Password123!}" -C -Q "SELECT 1" -b -o /dev/null
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1" -b -o /dev/null
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,7 +45,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-PayDB}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}
     ports:
       - "5432:5432"
     volumes:
@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}
     ports:
       - "5672:5672"     # AMQP protocol
       - "15672:15672"   # Management Web UI
@@ -102,8 +102,8 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__TripDbConnection: "Server=sqlserver,1433;Database=TripDB;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Password123!};TrustServerCertificate=True;MultipleActiveResultSets=true"
-      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+      ConnectionStrings__TripDbConnection: "Server=sqlserver,1433;Database=TripDB;User Id=sa;Password=${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in the environment};TrustServerCertificate=True;MultipleActiveResultSets=true"
+      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5105:8080"
@@ -125,7 +125,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__MongoDbConnection: "mongodb://mongodb:27017"
-      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5248:8080"
@@ -146,8 +146,8 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__PaymentDbConnection: "Host=postgres;Port=5432;Database=PayDB;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgrespassword}"
-      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+      ConnectionStrings__PaymentDbConnection: "Host=postgres;Port=5432;Database=PayDB;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}"
+      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5114:8080"
@@ -168,7 +168,8 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      Jwt__Secret: "${SWIFTRIDE_JWT_SECRET:-SwiftRide-JWT-Secret-Key-2026-SuperSecure-256Bits!}"
+      DemoIdentity__Password: "${SWIFTRIDE_DEMO_PASSWORD:?Set SWIFTRIDE_DEMO_PASSWORD in the environment}"
+      Jwt__Secret: "${SWIFTRIDE_JWT_SECRET:?Set SWIFTRIDE_JWT_SECRET in the environment}"
       ReverseProxy__Clusters__trip-cluster__Destinations__destination1__Address: "http://trip-service:8080"
       ReverseProxy__Clusters__matching-cluster__Destinations__destination1__Address: "http://matching-service:8080"
       ReverseProxy__Clusters__payment-cluster__Destinations__destination1__Address: "http://payment-service:8080"

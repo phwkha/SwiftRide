@@ -1,3 +1,4 @@
+using SwiftRide.Contracts;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -47,6 +48,27 @@ public class PaymentAppService
     public async Task<PaymentResponse> ProcessPaymentAsync(
         ProcessPaymentRequest request, string idempotencyKey, CancellationToken ct = default)
     {
+        var outcome = "failure";
+        try
+        {
+            var response = await ProcessPaymentCoreAsync(request, idempotencyKey, ct);
+            outcome = "success";
+            return response;
+        }
+        catch (PaymentException ex) when (ex.Code == ErrorCodes.PaymentDuplicate)
+        {
+            outcome = "duplicate";
+            throw;
+        }
+        finally
+        {
+            BusinessMetrics.PaymentResults.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
+        }
+    }
+
+    private async Task<PaymentResponse> ProcessPaymentCoreAsync(
+        ProcessPaymentRequest request, string idempotencyKey, CancellationToken ct)
+    {
         if (string.IsNullOrWhiteSpace(idempotencyKey))
             throw new PaymentException(ErrorCodes.ValidationError, 400, "Thieu header X-Idempotency-Key.");
         if (request.Amount <= 0)
@@ -67,6 +89,30 @@ public class PaymentAppService
             }
         }
 
+        try
+        {
+            return await ProcessAcquiredPaymentAsync(request, method, idempotencyKey, ct);
+        }
+        catch
+        {
+            if (_idempotencyGuard is not null)
+            {
+                try
+                {
+                    await _idempotencyGuard.ReleaseLockOnFailureAsync(idempotencyKey);
+                }
+                catch (Exception releaseError)
+                {
+                    _logger.LogError(releaseError, "Failed to release payment lock {IdempotencyKey}.", idempotencyKey);
+                }
+            }
+            throw;
+        }
+    }
+
+    private async Task<PaymentResponse> ProcessAcquiredPaymentAsync(
+        ProcessPaymentRequest request, string method, string idempotencyKey, CancellationToken ct)
+    {
         // Buoc 1: Idempotency check
         var record = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
         if (record is not null)
@@ -93,7 +139,8 @@ public class PaymentAppService
         {
             await _repo.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+                                               { SqlState: PostgresErrorCodes.UniqueViolation })
         {
             // Request khac cung khoa vua INSERT truoc
             _repo.ClearTracking();
@@ -107,18 +154,19 @@ public class PaymentAppService
         }
         catch
         {
-            if (_idempotencyGuard is not null)
+            try
             {
-                await _idempotencyGuard.ReleaseLockOnFailureAsync(idempotencyKey);
+                _repo.ClearTracking();
+                var failed = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
+                if (failed is not null && failed.Status != IdempotencyStatus.Success)
+                {
+                    failed.Status = IdempotencyStatus.Failed;
+                    await _repo.SaveChangesAsync(ct);
+                }
             }
-
-            // Giai phong khoa de lan thu lai (cung khoa) duoc xu ly tiep
-            _repo.ClearTracking();
-            var failed = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
-            if (failed is not null && failed.Status != IdempotencyStatus.Success)
+            catch (Exception cleanupError)
             {
-                failed.Status = IdempotencyStatus.Failed;
-                await _repo.SaveChangesAsync(ct);
+                _logger.LogError(cleanupError, "Failed to mark payment {IdempotencyKey} as failed.", idempotencyKey);
             }
             throw;
         }

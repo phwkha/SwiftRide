@@ -7,9 +7,11 @@ using MatchingService.Domain.Interfaces;
 using MatchingService.Domain.Pricing;
 using MatchingService.Infrastructure.Data;
 using MatchingService.Infrastructure.Repositories;
+using Microsoft.Extensions.Caching.Distributed;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using StackExchange.Redis;
 using SwiftRide.Contracts.Events;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,12 +40,32 @@ builder.Services.AddOpenTelemetry()
 // Add services to the container.
 builder.Services.AddOpenApi();
 
+// Register Redis Distributed Cache and Connection Multiplexer
+var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = redisConn;
+    options.InstanceName = "SwiftRide_";
+});
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(redisConn));
+
 // Register MongoDB Context
 builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddSingleton<MongoDbSeeder>();
 builder.Services.AddSingleton<FareCalculator>();
 builder.Services.AddTransient<IPricingStrategy, StandardPricingStrategy>();
-builder.Services.AddScoped<IPricingRepository, PricingRepository>();
+
+// Register Decorator for IPricingRepository
+builder.Services.AddScoped<PricingRepository>();
+builder.Services.AddScoped<IPricingRepository>(sp =>
+    new CachedPricingRepository(
+        sp.GetRequiredService<PricingRepository>(),
+        sp.GetRequiredService<IDistributedCache>(),
+        sp.GetRequiredService<ILogger<CachedPricingRepository>>()));
+
 builder.Services.AddScoped<IDriverRepository, DriverRepository>();
 builder.Services.AddScoped<PricingAppService>();
 builder.Services.AddScoped<DriverMatchingAppService>();

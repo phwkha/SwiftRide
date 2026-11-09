@@ -77,6 +77,22 @@ services:
       retries: 5
       start_period: 20s
 
+  # 4b. Redis - Distributed Cache & Distributed Lock
+  redis:
+    image: redis:7-alpine
+    container_name: swiftride-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # 5. Trip Service
   trip-service:
     build:
@@ -88,12 +104,15 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__TripDbConnection: "Server=sqlserver,1433;Database=TripDB;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Password123!};TrustServerCertificate=True;MultipleActiveResultSets=true"
       ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5105:8080"
     depends_on:
       sqlserver:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # 6. Matching Service
@@ -107,12 +126,15 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__MongoDbConnection: "mongodb://mongodb:27017"
       ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5248:8080"
     depends_on:
       mongodb:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # 7. Payment Service
@@ -126,12 +148,15 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__PaymentDbConnection: "Host=postgres;Port=5432;Database=PayDB;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgrespassword}"
       ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5114:8080"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # 8. API Gateway
@@ -149,6 +174,7 @@ services:
       ReverseProxy__Clusters__payment-cluster__Destinations__destination1__Address: "http://payment-service:8080"
       Downstream__TripService: "http://trip-service:8080"
       Downstream__MatchingService: "http://matching-service:8080"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5000:8080"
     depends_on:
@@ -161,3 +187,4 @@ volumes:
   mongodb_data:
   postgres_data:
   rabbitmq_data:
+  redis_data:

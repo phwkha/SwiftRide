@@ -2,13 +2,18 @@ using MatchingService.Application.DTOs;
 using MatchingService.Domain.Entities;
 using MatchingService.Domain.Interfaces;
 using MassTransit;
+using StackExchange.Redis;
 using SwiftRide.Contracts.Events;
 
 namespace MatchingService.Application.Services;
 
-public sealed class DriverMatchingAppService(IDriverRepository driverRepository, IPublishEndpoint publishEndpoint)
+public sealed class DriverMatchingAppService(
+    IDriverRepository driverRepository,
+    IPublishEndpoint publishEndpoint,
+    IConnectionMultiplexer? redisConnection = null)
 {
     private static readonly TimeSpan OfferCountdown = TimeSpan.FromSeconds(15);
+    private readonly IConnectionMultiplexer? _redisConnection = redisConnection;
 
     public async Task<IReadOnlyList<NearbyDriverDto>> FindNearbyDriversAsync(FindNearbyDriversRequest request, CancellationToken cancellationToken = default)
     {
@@ -174,6 +179,18 @@ public sealed class DriverMatchingAppService(IDriverRepository driverRepository,
 
         var now = DateTimeOffset.UtcNow;
         var driverId = Guid.Parse(driver.DriverId);
+
+        if (_redisConnection is not null)
+        {
+            var locked = await TryLockDriverForTripAsync(driverId, tripId);
+            if (!locked)
+            {
+                await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
+                await publishEndpoint.Publish(new MatchingFailedEvent(tripId, "Không tìm thấy tài xế khả dụng quanh khu vực"), cancellationToken);
+                return;
+            }
+        }
+
         try
         {
             await publishEndpoint.Publish(new TripOfferDispatchedEvent(
@@ -195,17 +212,44 @@ public sealed class DriverMatchingAppService(IDriverRepository driverRepository,
             {
                 await PublishOfferExpiredAsync(tripId, driverId, cancellationToken);
                 await ReleaseTripReservationAsync(tripId, CancellationToken.None);
+                await ReleaseDriverLockAsync(driverId);
             }
         }
         catch
         {
+            await ReleaseDriverLockAsync(driverId);
             await driverRepository.ReleaseDriverAsync(driver.DriverId, tripId.ToString(), CancellationToken.None);
             throw;
         }
     }
 
-    public Task ReleaseDriverAsync(Guid driverId, Guid tripId, CancellationToken cancellationToken = default)
-        => driverRepository.ReleaseDriverAsync(driverId.ToString(), tripId.ToString(), cancellationToken);
+    public async Task<bool> TryLockDriverForTripAsync(Guid driverId, Guid tripId)
+    {
+        if (_redisConnection is null) return true;
+        var db = _redisConnection.GetDatabase();
+        var lockKey = $"matching:lock:driver:{driverId}";
+
+        // SET NX (When.NotExists): Chỉ khóa thành công nếu tài xế chưa bị khóa bởi cuốc xe khác
+        return await db.StringSetAsync(
+            lockKey,
+            tripId.ToString(),
+            TimeSpan.FromSeconds(15),
+            When.NotExists);
+    }
+
+    public async Task ReleaseDriverLockAsync(Guid driverId)
+    {
+        if (_redisConnection is null) return;
+        var db = _redisConnection.GetDatabase();
+        var lockKey = $"matching:lock:driver:{driverId}";
+        await db.KeyDeleteAsync(lockKey);
+    }
+
+    public async Task ReleaseDriverAsync(Guid driverId, Guid tripId, CancellationToken cancellationToken = default)
+    {
+        await driverRepository.ReleaseDriverAsync(driverId.ToString(), tripId.ToString(), cancellationToken);
+        await ReleaseDriverLockAsync(driverId);
+    }
 
     public Task ReleaseTripReservationAsync(Guid tripId, CancellationToken cancellationToken = default)
         => driverRepository.ReleaseTripReservationAsync(tripId.ToString(), cancellationToken);
@@ -227,6 +271,7 @@ public sealed class DriverMatchingAppService(IDriverRepository driverRepository,
                 if (Guid.TryParse(driver.DriverId, out var reservedDriverId))
                 {
                     await PublishOfferExpiredAsync(tripId, reservedDriverId, cancellationToken);
+                    await ReleaseDriverLockAsync(reservedDriverId);
                 }
             }
         }

@@ -8,14 +8,18 @@ namespace TripService.Infrastructure.Repositories;
 
 public class TripRepository : ITripReader, ITripWriter
 {
-    private readonly TripDbContext _context;
+    private readonly TripDbContext _context = null!;
+
+    protected TripRepository()
+    {
+    }
 
     public TripRepository(TripDbContext context)
     {
         _context = context;
     }
 
-    public async Task<Trip?> GetByIdAsync(
+    public virtual async Task<Trip?> GetByIdAsync(
         Guid id,
         CancellationToken ct = default)
     {
@@ -23,7 +27,7 @@ public class TripRepository : ITripReader, ITripWriter
             .FirstOrDefaultAsync(t => t.Id == id, ct);
     }
 
-    public async Task<Trip?> GetActiveTripByUserAsync(
+    public virtual async Task<Trip?> GetActiveTripByUserAsync(
         Guid userId,
         CancellationToken ct = default)
     {
@@ -45,7 +49,7 @@ public class TripRepository : ITripReader, ITripWriter
             .FirstOrDefaultAsync(ct);
     }
 
-    public async Task AddAsync(
+    public virtual async Task AddAsync(
         Trip trip,
         TripStatusHistory history,
         OutboxMessage? outbox = null,
@@ -64,7 +68,7 @@ public class TripRepository : ITripReader, ITripWriter
         await _context.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateWithOutboxAsync(
+    public virtual async Task UpdateWithOutboxAsync(
         Trip trip,
         TripStatusHistory history,
         OutboxMessage? outbox = null,
@@ -83,7 +87,7 @@ public class TripRepository : ITripReader, ITripWriter
         await _context.SaveChangesAsync(ct);
     }
 
-    public Task UpdateWithOutboxesAsync(
+    public virtual Task UpdateWithOutboxesAsync(
         Trip trip,
         TripStatusHistory history,
         IReadOnlyCollection<OutboxMessage> outboxes,
@@ -96,7 +100,7 @@ public class TripRepository : ITripReader, ITripWriter
         return _context.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateWithHistoriesAndOutboxAsync(
+    public virtual async Task UpdateWithHistoriesAndOutboxAsync(
         Trip trip,
         IReadOnlyCollection<TripStatusHistory> histories,
         OutboxMessage outbox,

@@ -96,7 +96,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// 3. Rate Limiting (IP-based partitioned limiter with structured 429 response)
+// 3. Rate Limiting (User-ID/IP partitioned limiter with structured 429 response: gateway:ratelimit:{userId})
 static string GetClientIp(HttpContext httpContext)
 {
     var forwarded = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
@@ -106,6 +106,17 @@ static string GetClientIp(HttpContext httpContext)
         if (!string.IsNullOrEmpty(firstIp)) return firstIp;
     }
     return httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+}
+
+static string GetPartitionKey(HttpContext httpContext)
+{
+    var userId = httpContext.User.FindFirst("sub")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.Request.Headers["X-User-Id"].FirstOrDefault();
+
+    return !string.IsNullOrWhiteSpace(userId)
+        ? $"gateway:ratelimit:{userId}"
+        : $"gateway:ratelimit:{GetClientIp(httpContext)}";
 }
 
 builder.Services.AddRateLimiter(options =>
@@ -122,8 +133,8 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddPolicy("general", httpContext =>
     {
-        var ip = GetClientIp(httpContext);
-        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+        var key = GetPartitionKey(httpContext);
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 100,
             Window = TimeSpan.FromMinutes(1),
@@ -133,8 +144,8 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddPolicy("auth", httpContext =>
     {
-        var ip = GetClientIp(httpContext);
-        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+        var key = GetPartitionKey(httpContext);
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 10,
             Window = TimeSpan.FromMinutes(1),

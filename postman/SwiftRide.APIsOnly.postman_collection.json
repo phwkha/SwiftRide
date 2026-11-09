@@ -1,0 +1,1014 @@
+{
+  "info": {
+    "_postman_id": "41a94473-530b-4740-8239-0ca946276c70",
+    "name": "SwiftRide - APIs Only",
+    "description": "Danh sách API để gọi thủ công: mỗi operation có đúng một request mẫu, không có ca kiểm thử âm hay assertion. Import cùng SwiftRide.postman_environment.json. Dùng một request login cho cả Rider và Driver bằng cách đổi login_email/login_role ở Variables của collection. Token/ID được tự lưu vào environment. Không Run toàn bộ như kịch bản E2E: reject/cancel là nhánh thay thế, thanh toán thủ công chỉ dùng khi cần. Collection kiểm thử đầy đủ vẫn nằm trong SwiftRide.postman_collection.json.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{rider_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "login_email",
+      "value": "rider@swiftride.vn",
+      "type": "string"
+    },
+    {
+      "key": "login_role",
+      "value": "Rider",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01. Authentication",
+      "item": [
+        {
+          "name": "POST /api/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{login_email}}\",\n  \"password\": \"{{demo_password}}\",\n  \"role\": \"{{login_role}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Đổi login_email và login_role trong Variables của collection để đăng nhập Rider hoặc Driver. Gọi cùng request này lần lượt cho hai tài khoản; token được lưu đúng theo role. demo_password lấy từ environment, khớp .env."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " const role = d.user.role.toLowerCase();",
+                  " if (role === 'rider' || role === 'driver') {",
+                  "  pm.environment.set(role + '_token', d.accessToken);",
+                  "  pm.environment.set(role + '_id', d.user.id);",
+                  " }",
+                  " if (role === 'rider') pm.environment.set('refresh_token', d.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/auth/refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Làm mới token Rider; refresh token cũ bị thu hồi."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " pm.environment.set('rider_token', d.accessToken);",
+                  " pm.environment.set('refresh_token', d.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/auth/me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02. Matching & Drivers",
+      "item": [
+        {
+          "name": "POST /api/matching/quote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "quote"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"dropoffLatitude\":{{dropoff_latitude}},\"dropoffLongitude\":{{dropoff_longitude}},\"vehicleType\":\"Bike\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Gọi trước khi tạo chuyến để lấy quote_id, distance_km, duration_minutes và estimated_fare."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " pm.environment.set('quote_id', d.quoteId);",
+                  " pm.environment.set('distance_km', d.distanceKm);",
+                  " pm.environment.set('duration_minutes', d.estimatedDurationMinutes);",
+                  " pm.environment.set('estimated_fare', d.totalFare);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/matching/find-drivers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/find-drivers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "find-drivers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"vehicleType\":\"Bike\",\"radiusKm\":5,\"limit\":10}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/drivers/{id}/location",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "location"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/drivers/{id}/location",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "location"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 10.7755,\n  \"longitude\": 106.699,\n  \"bearing\": 90,\n  \"speed\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Dùng driver_token và driver_id của cùng tài khoản. Chỉ Driver được cập nhật vị trí chính mình."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/drivers/{id}/availability",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver_id}}/availability",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "availability"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isAvailable\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Bật/tắt sẵn sàng nhận chuyến. Không thể bật khi tài xế đang được giữ cho chuyến khác."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03. Trips",
+      "description": "Luồng chính: tạo → xác nhận → nhận → start-route → pick-up → drop-off. Reject và Cancel là các nhánh thay thế, không chạy tất cả request liên tiếp.",
+      "item": [
+        {
+          "name": "POST /api/trips",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quoteId\": \"{{quote_id}}\",\n  \"pickupLatitude\": {{pickup_latitude}}, \"pickupLongitude\": {{pickup_longitude}},\n  \"pickupAddress\": \"Điểm đón mẫu\",\n  \"dropoffLatitude\": {{dropoff_latitude}}, \"dropoffLongitude\": {{dropoff_longitude}},\n  \"dropoffAddress\": \"Điểm trả mẫu\",\n  \"distanceKm\": {{distance_km}}, \"estimatedDurationMinutes\": {{duration_minutes}},\n  \"estimatedFare\": {{estimated_fare}}, \"vehicleType\": \"Bike\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Tạo chuyến Requested sau khi lấy báo giá. trip_id được lưu tự động."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) pm.environment.set('trip_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/trips/{id}/confirm-quote",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/confirm-quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "confirm-quote"
+              ]
+            },
+            "description": "Chỉ chủ chuyến được xác nhận."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/trips/active",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "active"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/trips/{id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}"
+              ]
+            },
+            "description": "Chỉ chủ chuyến hoặc tài xế được gán đọc được."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/trips/{id}/accept",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/accept",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "accept"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/trips/{id}/reject",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "reject"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Thay đổi kế hoạch\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Luồng thay thế: từ chối đề nghị, không chạy sau khi đã nhận/hoàn tất chuyến."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/trips/{id}/start-route",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/start-route",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "start-route"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/trips/{id}/pick-up",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/pick-up",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "pick-up"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/trips/{id}/drop-off",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/drop-off",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "drop-off"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethod\": \"Wallet\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Sau khi trả khách, chờ thanh toán tự động qua RabbitMQ. Gọi GET chi tiết để xem Completed."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/trips/{id}/cancel",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "cancel"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Thay đổi kế hoạch\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Luồng thay thế: hủy chuyến trước khi hoàn tất; dùng token chủ chuyến hoặc tài xế được gán."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04. Gateway",
+      "item": [
+        {
+          "name": "GET /api/trips/{id}/overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "overview"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05. Payments & Accounts",
+      "item": [
+        {
+          "name": "POST /api/payments/process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tripId\": \"{{trip_id}}\",\n  \"riderId\": \"{{rider_id}}\",\n  \"driverId\": \"{{driver_id}}\",\n  \"amount\": {{estimated_fare}},\n  \"paymentMethod\": \"Wallet\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Chỉ gọi khi cần thanh toán thủ công/PaymentPending. Trả khách đã tự thanh toán qua RabbitMQ thì không gọi lại. Key được giữ nguyên cho cùng trip_id; transaction_id được lưu khi thành công."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const tripId = pm.environment.get('trip_id');",
+                  "if (!tripId) throw new Error('Set trip_id first.');",
+                  "if (!pm.environment.get('idempotency_key') || pm.environment.get('payment_key_trip_id') !== tripId) {",
+                  " pm.environment.set('idempotency_key', 'manual_' + tripId);",
+                  " pm.environment.set('payment_key_trip_id', tripId);",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) pm.environment.set('transaction_id', pm.response.json().data.transactionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/{transactionId}/refund",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{transaction_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{transaction_id}}",
+                "refund"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Hoàn tiền theo yêu cầu\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Điền transaction_id của giao dịch thành công cần hoàn tiền. Script thanh toán thủ công lưu ID này; thanh toán tự động không trả transaction_id qua API Trip."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/payment-tokens",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"Momo\",\n  \"token\": \"tok_momo_sample_1234\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Liên kết nguồn thanh toán bằng token; không gửi số thẻ/CVV."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) pm.environment.set('payment_token_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/payment-tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/accounts/{ownerId}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{rider_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{rider_id}}"
+              ]
+            },
+            "description": "Mặc định dùng rider_id. Thay bằng driver_id nếu muốn đọc ví tài xế."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06. Utilities",
+      "item": [
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "POST /hubs/trips/negotiate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips/negotiate?negotiateVersion=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips",
+                "negotiate?negotiateVersion=1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Bước thương lượng kết nối SignalR. Các hàm Join/Leave room gọi qua client SignalR sau khi kết nối."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) pm.environment.set('connection_token', pm.response.json().connectionToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /dev/simulate-trip-requested",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{matching_url}}/dev/simulate-trip-requested",
+              "host": [
+                "{{matching_url}}"
+              ],
+              "path": [
+                "dev",
+                "simulate-trip-requested"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{trip_id}}\",\"riderId\":\"{{rider_id}}\",\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"pickupAddress\":\"Điểm mẫu\",\"dropoffLatitude\":{{dropoff_latitude}},\"dropoffLongitude\":{{dropoff_longitude}},\"dropoffAddress\":\"Điểm mẫu\",\"vehicleType\":\"Bike\",\"distanceKm\":{{distance_km}},\"estimatedDurationMinutes\":{{duration_minutes}},\"estimatedFare\":{{estimated_fare}},\"excludedDriverIds\":[]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Chỉ Development, gọi trực tiếp MatchingService. Bỏ qua bước tạo chuyến/xác nhận và publish event, có thể giữ tài xế. Điền trip_id của fixture phù hợp; không dùng cho frontend hoặc chạy tự động cùng luồng chính."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

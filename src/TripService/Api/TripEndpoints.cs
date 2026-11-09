@@ -52,7 +52,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.ConfirmQuoteAsync(id, ct));
+        return ToResult(await service.ConfirmQuoteAsync(id, user.Id, ct));
     }
 
     private static async Task<IResult> GetActiveTripAsync(
@@ -77,7 +77,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.GetTripByIdAsync(id, ct));
+        return ToResult(await service.GetTripByIdAsync(id, user.Id, ct));
     }
 
     private static async Task<IResult> AcceptTripAsync(

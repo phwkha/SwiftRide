@@ -9,9 +9,9 @@ public interface ITripAppService
         CreateTripRequest request,
         CancellationToken ct = default);
 
-    Task<ApiResponse<TripDto>> ConfirmQuoteAsync(Guid tripId, CancellationToken ct = default);
+    Task<ApiResponse<TripDto>> ConfirmQuoteAsync(Guid tripId, Guid callerUserId, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> GetActiveTripAsync(Guid userId, CancellationToken ct = default);
-    Task<ApiResponse<TripDto>> GetTripByIdAsync(Guid tripId, CancellationToken ct = default);
+    Task<ApiResponse<TripDto>> GetTripByIdAsync(Guid tripId, Guid callerUserId, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> AcceptTripAsync(Guid tripId, Guid driverId, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> RejectTripAsync(Guid tripId, Guid driverId, string? reason = null, CancellationToken ct = default);
     Task<ApiResponse<TripDto>> StartRouteAsync(Guid tripId, Guid? driverId = null, CancellationToken ct = default);

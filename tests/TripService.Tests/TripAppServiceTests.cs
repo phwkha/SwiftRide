@@ -16,6 +16,35 @@ public class TripAppServiceTests
     private static readonly Guid DriverId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     [Fact]
+    public async Task ConfirmQuoteAsync_UnrelatedUser_CannotWriteOrPublish()
+    {
+        var trip = CreateTrip(TripStatus.Requested);
+        var writer = new Mock<ITripWriter>();
+        var service = new TripAppService(writer.Object, ReaderFor(trip).Object);
+
+        var result = await service.ConfirmQuoteAsync(trip.Id, Guid.NewGuid());
+
+        Assert.Equal(403, result.StatusCode);
+        Assert.False(trip.FareConfirmed);
+        Assert.Empty(writer.Invocations);
+    }
+
+    [Theory]
+    [InlineData("11111111-1111-1111-1111-111111111111", 200)]
+    [InlineData("22222222-2222-2222-2222-222222222222", 200)]
+    [InlineData("33333333-3333-3333-3333-333333333333", 403)]
+    [InlineData("00000000-0000-0000-0000-000000000000", 403)]
+    public async Task GetTripByIdAsync_OnlyParticipantsCanRead(string caller, int status)
+    {
+        var trip = CreateTrip(TripStatus.DriverAccepted);
+        trip.DriverId = DriverId;
+        var service = new TripAppService(new Mock<ITripWriter>().Object, ReaderFor(trip).Object);
+        var result = await service.GetTripByIdAsync(trip.Id, Guid.Parse(caller));
+        Assert.Equal(status, result.StatusCode);
+        if (status == 403) Assert.Null(result.Data);
+    }
+
+    [Fact]
     public async Task ConfirmQuoteAsync_WritesTripRequestedEventToOutbox()
     {
         var trip = CreateTrip(TripStatus.Requested);
@@ -33,7 +62,7 @@ public class TripAppServiceTests
             .Callback<Trip, TripStatusHistory, OutboxMessage, CancellationToken>(
                 (_, _, outbox, _) => capturedOutbox = outbox);
 
-        var response = await service.ConfirmQuoteAsync(trip.Id);
+        var response = await service.ConfirmQuoteAsync(trip.Id, RiderId);
 
         Assert.Equal(200, response.StatusCode);
         writer.Verify(x => x.UpdateWithOutboxAsync(

@@ -2,82 +2,16 @@
   "info": {
     "_postman_id": "73c92f05-273a-450d-bfeb-b6331020724f",
     "name": "SwiftRide API Collection",
-    "description": "Bộ sưu tập đầy đủ 25 REST APIs cho nền tảng Microservices SwiftRide (.NET 10). Tự động lưu Token JWT, TripId, QuoteId vào biến môi trường khi chạy các request xác thực và khởi tạo.",
+    "description": "Run all folders in order with SwiftRide Local environment. Set demo_password to SWIFTRIDE_DEMO_PASSWORD. Runtime variables are stored only in the environment, avoiding collection/environment shadowing. Happy path, cancellation, rejection, security and manual payments use separate fixtures. This runner creates test data; manual charges are refunded, main-trip automatic payment remains in the ledger. Dev simulator uses an already cancelled fixture. No request logs JWTs.\n\nImport both JSON files and select the SwiftRide Local environment. Run the entire collection in order; set demo_password to the value of SWIFTRIDE_DEMO_PASSWORD in .env. For Newman use: newman run postman/SwiftRide.postman_collection.json -e postman/SwiftRide.postman_environment.json --timeout-script 35000. The settlement check may wait up to 25 seconds. Run one iteration at a time. The full run creates labelled test records; use a development database. SignalR tests use Long Polling, not WebSocket.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "variable": [
-    {
-      "key": "base_url",
-      "value": "http://localhost:5000",
-      "type": "string"
-    },
-    {
-      "key": "rider_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "driver_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "refresh_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "rider_id",
-      "value": "11111111-1111-1111-1111-111111111111",
-      "type": "string"
-    },
-    {
-      "key": "driver_id",
-      "value": "22222222-2222-2222-2222-222222222222",
-      "type": "string"
-    },
-    {
-      "key": "trip_id",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "quote_id",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "transaction_id",
-      "value": "",
-      "type": "string"
-    }
-  ],
   "item": [
     {
-      "name": "01. Authentication & Identity",
-      "description": "Các API xác thực danh tính, cấp phát và làm mới JWT Bearer Token qua API Gateway.",
+      "name": "01. Authentication",
+      "description": "",
       "item": [
         {
-          "name": "01. Login as Rider",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    var json = pm.response.json();",
-                  "    if (json.data && json.data.accessToken) {",
-                  "        pm.collectionVariables.set('rider_token', json.data.accessToken);",
-                  "        pm.collectionVariables.set('refresh_token', json.data.refreshToken);",
-                  "        pm.collectionVariables.set('rider_id', json.data.user.id);",
-                  "        console.log('Saved Rider Token: ' + json.data.accessToken);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Login rider",
           "request": {
             "method": "POST",
             "header": [
@@ -86,100 +20,206 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"rider@swiftride.vn\",\n  \"password\": \"Password123!\",\n  \"role\": \"Rider\"\n}"
-            },
             "url": {
               "raw": "{{base_url}}/api/auth/login",
-              "host": ["{{base_url}}"],
-              "path": ["api", "auth", "login"]
-            },
-            "description": "Đăng nhập với tài khoản khách hàng mặc định (rider@swiftride.vn). Script tự động lưu accessToken vào biến collection `rider_token`."
-          }
-        },
-        {
-          "name": "02. Login as Driver 1",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    var json = pm.response.json();",
-                  "    if (json.data && json.data.accessToken) {",
-                  "        pm.collectionVariables.set('driver_token', json.data.accessToken);",
-                  "        pm.collectionVariables.set('driver_id', json.data.user.id);",
-                  "        console.log('Saved Driver Token: ' + json.data.accessToken);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"driver1@swiftride.vn\",\n  \"password\": \"Password123!\",\n  \"role\": \"Driver\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/auth/login",
-              "host": ["{{base_url}}"],
-              "path": ["api", "auth", "login"]
-            },
-            "description": "Đăng nhập với tài khoản tài xế 1 (driver1@swiftride.vn). Script tự động lưu accessToken vào biến collection `driver_token`."
-          }
-        },
-        {
-          "name": "03. Get Current User Profile (/me)",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
               ]
             },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{rider_email}}\",\n  \"password\": \"{{demo_password}}\",\n  \"role\": \"Rider\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.unset('transaction_id');",
+                  "const tag = 'postman-' + Date.now() + '-' + pm.variables.replaceIn('{{$guid}}');",
+                  "pm.environment.set('run_tag', tag);",
+                  "pm.environment.set('missing_id', pm.variables.replaceIn('{{$guid}}'));",
+                  "['created_trip_ids','created_payment_trip_ids','created_token_ids','created_quote_ids'].forEach(k => pm.environment.set(k, '[]'));",
+                  "['rider_token','driver_token','driver2_token','refresh_token','quote_id','trip_id','transaction_id','manual_trip_id','idempotency_key','payment_token_id','security_trip_id','cancel_trip_id','reject_trip_id','connection_token'].forEach(k => pm.environment.unset(k));",
+                  "if (!pm.environment.get('demo_password')) throw new Error('Set demo_password to SWIFTRIDE_DEMO_PASSWORD from .env');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " pm.environment.set('rider_token', d.accessToken);",
+                  " pm.environment.set('rider_id', d.user.id);",
+                  " pm.environment.set(\"refresh_token\", d.refreshToken);",
+                  " pm.test('JWT present', () => pm.expect(d.accessToken).to.be.a('string').and.not.empty);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login driver",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{driver_email}}\",\n  \"password\": \"{{demo_password}}\",\n  \"role\": \"Driver\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " pm.environment.set('driver_token', d.accessToken);",
+                  " pm.environment.set('driver_id', d.user.id);",
+                  " ",
+                  " pm.test('JWT present', () => pm.expect(d.accessToken).to.be.a('string').and.not.empty);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login driver2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"driver2@swiftride.vn\",\n  \"password\": \"{{demo_password}}\",\n  \"role\": \"Driver\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " pm.environment.set('driver2_token', d.accessToken);",
+                  " pm.environment.set('driver2_id', d.user.id);",
+                  " ",
+                  " pm.test('JWT present', () => pm.expect(d.accessToken).to.be.a('string').and.not.empty);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Current rider profile",
+          "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/auth/me",
-              "host": ["{{base_url}}"],
-              "path": ["api", "auth", "me"]
-            },
-            "description": "Lấy thông tin người dùng hiện tại dựa trên JWT Token đính kèm."
-          }
-        },
-        {
-          "name": "04. Refresh Access Token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "response": [],
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    var json = pm.response.json();",
-                  "    if (json.data && json.data.accessToken) {",
-                  "        pm.collectionVariables.set('rider_token', json.data.accessToken);",
-                  "        pm.collectionVariables.set('refresh_token', json.data.refreshToken);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Rider identity', () => pm.expect(pm.response.json().data.id).to.eql(pm.environment.get('rider_id')));"
+                ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Refresh rider tokens",
           "request": {
             "method": "POST",
             "header": [
@@ -188,86 +228,103 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
-            },
             "url": {
               "raw": "{{base_url}}/api/auth/refresh",
-              "host": ["{{base_url}}"],
-              "path": ["api", "auth", "refresh"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
             },
-            "description": "Làm mới Access Token khi token cũ hết hạn bằng Refresh Token."
-          }
-        }
-      ]
-    },
-    {
-      "name": "02. Matching & Pricing",
-      "description": "Các API tính giá linh hoạt và tìm kiếm tài xế lân cận dựa trên MongoDB Geo-spatial.",
-      "item": [
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('old_refresh_token', pm.environment.get('refresh_token'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) { const d=pm.response.json().data; pm.environment.set('rider_token',d.accessToken);pm.environment.set('refresh_token',d.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
         {
-          "name": "05. Calculate Trip Quote",
+          "name": "Reject reused refresh token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{old_refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    var json = pm.response.json();",
-                  "    if (json.data && json.data.quoteId) {",
-                  "        pm.collectionVariables.set('quote_id', json.data.quoteId);",
-                  "        console.log('Saved Quote ID: ' + json.data.quoteId);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
               }
             }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"pickupLatitude\": 10.7769,\n  \"pickupLongitude\": 106.7009,\n  \"pickupAddress\": \"Chợ Bến Thành, Quận 1, TP.HCM\",\n  \"dropoffLatitude\": 10.7829,\n  \"dropoffLongitude\": 106.6989,\n  \"dropoffAddress\": \"Nhà thờ Đức Bà, Quận 1, TP.HCM\",\n  \"vehicleType\": \"Bike\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/matching/quote",
-              "host": ["{{base_url}}"],
-              "path": ["api", "matching", "quote"]
-            },
-            "description": "Tính toán cước phí ước tính theo khoảng cách, thời gian và hệ số nhu cầu. Script tự động lưu `quote_id`."
-          }
+          ]
         },
         {
-          "name": "06. Find Nearby Drivers",
+          "name": "Reject invalid password",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
             "method": "POST",
             "header": [
               {
@@ -275,141 +332,271 @@
                 "value": "application/json"
               }
             ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"pickupLatitude\": 10.7769,\n  \"pickupLongitude\": 106.7009,\n  \"radiusKm\": 5.0,\n  \"vehicleType\": \"Bike\",\n  \"limit\": 10\n}"
+              "raw": "{\n  \"email\": \"{{rider_email}}\",\n  \"password\": \"incorrect\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject anonymous profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
             },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02. Pricing and driver APIs",
+      "description": "",
+      "item": [
+        {
+          "name": "Get driver location",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "location"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json().data;pm.environment.set('driver_latitude',d.latitude);pm.environment.set('driver_longitude',d.longitude);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update own driver location",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "location"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"latitude\":{{driver_latitude}},\"longitude\":{{driver_longitude}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Availability unknown driver (preserve current reservations)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{missing_id}}/availability",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{missing_id}}",
+                "availability"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isAvailable\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Find available drivers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/matching/find-drivers",
-              "host": ["{{base_url}}"],
-              "path": ["api", "matching", "find-drivers"]
-            },
-            "description": "Tìm danh sách các tài xế đang rảnh xung quanh tọa độ đón khách."
-          }
-        },
-        {
-          "name": "07. Update Driver Availability",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{driver_token}}",
-                  "type": "string"
-                }
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "find-drivers"
               ]
             },
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"isAvailable\": true\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/drivers/{{driver_id}}/availability",
-              "host": ["{{base_url}}"],
-              "path": ["api", "drivers", "{{driver_id}}", "availability"]
-            },
-            "description": "Tài xế bật hoặc tắt trạng thái sẵn sàng đón cuốc xe mới."
-          }
-        },
-        {
-          "name": "08. Update Driver GPS Location",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{driver_token}}",
-                  "type": "string"
+              "raw": "{\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"vehicleType\":\"Bike\",\"radiusKm\":5,\"limit\":10}",
+              "options": {
+                "raw": {
+                  "language": "json"
                 }
-              ]
-            },
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
               }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"latitude\": 10.7772,\n  \"longitude\": 106.7015,\n  \"bearing\": 90.0,\n  \"speed\": 25.5\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
-              "host": ["{{base_url}}"],
-              "path": ["api", "drivers", "{{driver_id}}", "location"]
-            },
-            "description": "Driver App gửi tọa độ GPS định kỳ lên hệ thống."
-          }
-        },
-        {
-          "name": "09. Get Driver Location",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
-              "host": ["{{base_url}}"],
-              "path": ["api", "drivers", "{{driver_id}}", "location"]
-            },
-            "description": "Khách hàng tra cứu vị trí thời gian thực của tài xế."
-          }
-        }
-      ]
-    },
-    {
-      "name": "03. Trip Lifecycle",
-      "description": "Các API quản lý vòng đời chuyến đi theo State Machine: Requested -> DriverAccepted -> EnRoute -> PickedUp -> DroppedOff -> Completed / Cancelled.",
-      "item": [
-        {
-          "name": "10. Create Trip",
+            }
+          },
+          "response": [],
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 200 || pm.response.code === 201) {",
-                  "    var json = pm.response.json();",
-                  "    if (json.data && json.data.id) {",
-                  "        pm.collectionVariables.set('trip_id', json.data.id);",
-                  "        console.log('Saved Trip ID: ' + json.data.id);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Generate quote and save fare metrics",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
             "method": "POST",
             "header": [
               {
@@ -417,113 +604,317 @@
                 "value": "application/json"
               }
             ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "quote"
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"quoteId\": \"{{quote_id}}\",\n  \"pickupLatitude\": 10.7769,\n  \"pickupLongitude\": 106.7009,\n  \"pickupAddress\": \"Bến Thành, Quận 1\",\n  \"dropoffLatitude\": 10.7829,\n  \"dropoffLongitude\": 106.6989,\n  \"dropoffAddress\": \"Nhà thờ Đức Bà, Quận 1\",\n  \"distanceKm\": 2.5,\n  \"estimatedDurationMinutes\": 8,\n  \"estimatedFare\": 35000,\n  \"vehicleType\": \"Bike\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/trips",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips"]
-            },
-            "description": "Tạo chuyến đi mới ở trạng thái Requested (chờ xác nhận giá). Script tự động lưu `trip_id`."
-          }
+              "raw": "{\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"dropoffLatitude\":{{dropoff_latitude}},\"dropoffLongitude\":{{dropoff_longitude}},\"vehicleType\":\"Bike\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  " const d = pm.response.json().data;",
+                  " pm.environment.set('quote_id',d.quoteId);",
+                  " pm.environment.set('distance_km', d.distanceKm);",
+                  " pm.environment.set('duration_minutes', d.estimatedDurationMinutes);",
+                  " pm.environment.set('estimated_fare', d.totalFare);",
+                  " pm.test('Quote id is GUID', () => pm.expect(d.quoteId).to.match(/^[0-9a-f-]{36}$/i));",
+                  "}",
+                  "const ids = JSON.parse(pm.environment.get('created_quote_ids') || '[]'); ids.push(pm.response.json().data.quoteId); pm.environment.set('created_quote_ids', JSON.stringify(ids));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "11. Confirm Quote (Find Drivers)",
+          "name": "Quote invalid coordinates",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
-              "raw": "{{base_url}}/api/trips/{{trip_id}}/confirm-quote",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "confirm-quote"]
-            },
-            "description": "Khách hàng chốt báo giá. Kích hoạt Outbox Event `TripRequestedEvent` để Matching Service bắt đầu tìm xe."
-          }
-        },
-        {
-          "name": "12. Get Active Trip",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
+              "raw": "{{base_url}}/api/matching/quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "quote"
               ]
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pickupLatitude\": 100,\n  \"pickupLongitude\": 106,\n  \"dropoffLatitude\": 10,\n  \"dropoffLongitude\": 106,\n  \"vehicleType\": \"Bike\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read rider balance before trip",
+          "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/trips/active",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "active"]
-            },
-            "description": "Lấy thông tin chuyến đi đang diễn ra dở dang của User (dùng khi mở lại app)."
-          }
-        },
+              "raw": "{{base_url}}/api/accounts/{{rider_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{rider_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('wallet_before',pm.response.json().data.balance);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03. Happy path - separate completed trip",
+      "description": "",
+      "item": [
         {
-          "name": "13. Get Trip by ID",
+          "name": "Create main trip from actual quote",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips"
               ]
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quoteId\": \"{{quote_id}}\",\n  \"pickupLatitude\": {{pickup_latitude}}, \"pickupLongitude\": {{pickup_longitude}},\n  \"pickupAddress\": \"{{run_tag}} pickup\",\n  \"dropoffLatitude\": {{dropoff_latitude}}, \"dropoffLongitude\": {{dropoff_longitude}},\n  \"dropoffAddress\": \"{{run_tag}} dropoff\",\n  \"distanceKm\": {{distance_km}}, \"estimatedDurationMinutes\": {{duration_minutes}},\n  \"estimatedFare\": {{estimated_fare}}, \"vehicleType\": \"Bike\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('trip_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_trip_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_trip_ids', JSON.stringify(ids));",
+                  "pm.test('Trip status 0', () => pm.expect(pm.response.json().data.status).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read main trip",
+          "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/trips/{{trip_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}"]
-            },
-            "description": "Tra cứu chi tiết cuốc xe theo Trip ID."
-          }
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 0', () => pm.expect(pm.response.json().data.status).to.eql(0));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "14. Driver Accept Trip",
+          "name": "Read main trip again (cache)",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{driver_token}}",
-                  "type": "string"
-                }
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}"
               ]
-            },
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 0', () => pm.expect(pm.response.json().data.status).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read active trip",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "active"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm quote as rider",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/confirm-quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "confirm-quote"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Fare confirmed',()=>pm.expect(pm.response.json().data.fareConfirmed).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Accept trip as driver",
+          "request": {
             "method": "PUT",
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/trips/{{trip_id}}/accept",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "accept"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "accept"
+              ]
             },
-            "description": "Tài xế nhấn đồng ý nhận cuốc. Trạng thái chuyển sang DriverAccepted."
-          }
-        },
-        {
-          "name": "15. Driver Reject Trip",
-          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -533,29 +924,48 @@
                   "type": "string"
                 }
               ]
-            },
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(()=>{},2500);"
+                ]
               }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reason\": \"Tài xế đang bận đổ xăng\"\n}"
             },
-            "url": {
-              "raw": "{{base_url}}/api/trips/{{trip_id}}/reject",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "reject"]
-            },
-            "description": "Tài xế từ chối cuốc. Hệ thống ghi nhận và tự động tìm tài xế khác phù hợp."
-          }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 1', () => pm.expect(pm.response.json().data.status).to.eql(1));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "16. Driver Start Route (Arriving)",
+          "name": "Reject duplicate acceptance",
           "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/accept",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "accept"
+              ]
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -565,20 +975,79 @@
                   "type": "string"
                 }
               ]
-            },
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Start route with wrong driver denied",
+          "request": {
             "method": "PUT",
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/trips/{{trip_id}}/start-route",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "start-route"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "start-route"
+              ]
             },
-            "description": "Tài xế xuất phát di chuyển đến điểm đón khách."
-          }
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver2_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "17. Driver Pick Up Passenger",
+          "name": "Start route",
           "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/start-route",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "start-route"
+              ]
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -588,20 +1057,118 @@
                   "type": "string"
                 }
               ]
-            },
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 2', () => pm.expect(pm.response.json().data.status).to.eql(2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pick up",
+          "request": {
             "method": "PUT",
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/trips/{{trip_id}}/pick-up",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "pick-up"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "pick-up"
+              ]
             },
-            "description": "Xác nhận khách đã lên xe. Chuyến đi chuyển sang PickedUp."
-          }
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 3', () => pm.expect(pm.response.json().data.status).to.eql(3));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "18. Driver Drop Off (Complete Trip)",
+          "name": "Aggregated trip with driver location",
           "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "overview"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip identity',()=>pm.expect(pm.response.json().data.trip.id).to.eql(pm.environment.get('trip_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Drop off using Wallet",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/drop-off",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "drop-off"
+              ]
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -612,105 +1179,491 @@
                 }
               ]
             },
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"paymentMethod\": \"Wallet\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/trips/{{trip_id}}/drop-off",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "drop-off"]
-            },
-            "description": "Trả khách tại đích đến. Tự động phát sinh thanh toán qua RabbitMQ vào PaymentService."
-          }
+              "raw": "{\n  \"paymentMethod\": \"Wallet\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 4', () => pm.expect(pm.response.json().data.status).to.eql(4));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "19. Cancel Trip",
+          "name": "Wait for automatic payment and Completed",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reason\": \"Khách đổi ý muốn đi phương tiện khác\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/trips/{{trip_id}}/cancel",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "cancel"]
-            },
-            "description": "Hủy chuyến đi (chỉ hợp lệ khi chuyến đi chưa hoàn tất)."
-          }
-        }
-      ]
-    },
-    {
-      "name": "04. Gateway Aggregation",
-      "description": "Endpoint gom dữ liệu chuyến đi + vị trí tài xế theo thời gian thực tại API Gateway.",
-      "item": [
-        {
-          "name": "20. Get Aggregated Trip Overview",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/trips/{{trip_id}}/overview",
-              "host": ["{{base_url}}"],
-              "path": ["api", "trips", "{{trip_id}}", "overview"]
+              "raw": "{{base_url}}/api/trips/{{trip_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const url=pm.environment.get('base_url')+'/api/trips/'+pm.environment.get('trip_id');",
+                  "const options={url,method:'GET',header:{Authorization:'Bearer '+pm.environment.get('rider_token')}};",
+                  "let attempt=0;",
+                  "function poll() {",
+                  " pm.sendRequest(options,(err,res)=>{",
+                  "  if(err) { pm.test('Settlement polling succeeded',()=>{throw err;});return; }",
+                  "  const d=res.json().data;",
+                  "  if(res.code===200 && d && d.status===7) {",
+                  "   pm.test('RabbitMQ settlement reaches Completed',()=>pm.expect(d.status).to.eql(7));return;",
+                  "  }",
+                  "  if(++attempt>=25) {pm.test('Completed within 25 seconds',()=>pm.expect(d && d.status).to.eql(7));return;}",
+                  "  setTimeout(poll,1000);",
+                  " });",
+                  "}",
+                  "poll();"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject cancellation of completed trip",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{trip_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{trip_id}}",
+                "cancel"
+              ]
             },
-            "description": "API Aggregation: Gom dữ liệu TripService + GPS MatchingService trong 1 lần gọi (timeout 5s)."
-          }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check wallet debit after completion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{rider_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{rider_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Actual quoted fare debited',()=>pm.expect(pm.response.json().data.balance).to.eql(Number(pm.environment.get('wallet_before'))-Number(pm.environment.get('estimated_fare'))));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "05. Payments & Accounts",
-      "description": "Các API thanh toán sổ cái kép (Double-entry Ledger), liên kết nguồn tiền và tra cứu số dư ví.",
+      "name": "04. Cancel and reject - independent trips",
+      "description": "",
       "item": [
         {
-          "name": "21. Process Payment (with Idempotency)",
+          "name": "Create cancellation fixture",
           "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quoteId\": \"{{quote_id}}\",\n  \"pickupLatitude\": {{pickup_latitude}}, \"pickupLongitude\": {{pickup_longitude}},\n  \"pickupAddress\": \"{{run_tag}} pickup\",\n  \"dropoffLatitude\": {{dropoff_latitude}}, \"dropoffLongitude\": {{dropoff_longitude}},\n  \"dropoffAddress\": \"{{run_tag}} dropoff\",\n  \"distanceKm\": {{distance_km}}, \"estimatedDurationMinutes\": {{duration_minutes}},\n  \"estimatedFare\": {{estimated_fare}}, \"vehicleType\": \"Bike\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('cancel_trip_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_trip_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_trip_ids', JSON.stringify(ids));",
+                  "pm.test('Trip status 0', () => pm.expect(pm.response.json().data.status).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel as unrelated driver denied",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{cancel_trip_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{cancel_trip_id}}",
+                "cancel"
+              ]
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{rider_token}}",
+                  "value": "{{driver2_token}}",
                   "type": "string"
                 }
               ]
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel own fixture",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{cancel_trip_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{cancel_trip_id}}",
+                "cancel"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 8', () => pm.expect(pm.response.json().data.status).to.eql(8));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create rejection fixture",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quoteId\": \"{{quote_id}}\",\n  \"pickupLatitude\": {{pickup_latitude}}, \"pickupLongitude\": {{pickup_longitude}},\n  \"pickupAddress\": \"{{run_tag}} pickup\",\n  \"dropoffLatitude\": {{dropoff_latitude}}, \"dropoffLongitude\": {{dropoff_longitude}},\n  \"dropoffAddress\": \"{{run_tag}} dropoff\",\n  \"distanceKm\": {{distance_km}}, \"estimatedDurationMinutes\": {{duration_minutes}},\n  \"estimatedFare\": {{estimated_fare}}, \"vehicleType\": \"Bike\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('reject_trip_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_trip_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_trip_ids', JSON.stringify(ids));",
+                  "pm.test('Trip status 0', () => pm.expect(pm.response.json().data.status).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject fixture offer",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{reject_trip_id}}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{reject_trip_id}}",
+                "reject"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel rejection fixture",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{reject_trip_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{reject_trip_id}}",
+                "cancel"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 8', () => pm.expect(pm.response.json().data.status).to.eql(8));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05. Payments - independent ids, stable keys and refunds",
+      "description": "Never manually charge the completed main trip again. transaction_id is captured from each successful manual payment; refunds use that id. Tokenized gateways are simulators.",
+      "item": [
+        {
+          "name": "Wallet before manual payment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{rider_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{rider_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('wallet_before_manual',pm.response.json().data.balance);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Manual Wallet payment (independent payment id)",
+          "request": {
             "method": "POST",
             "header": [
               {
@@ -719,34 +1672,158 @@
               },
               {
                 "key": "X-Idempotency-Key",
-                "value": "pay-manual-{{$timestamp}}"
+                "value": "{{idempotency_key}}"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"tripId\": \"{{trip_id}}\",\n  \"riderId\": \"{{rider_id}}\",\n  \"driverId\": \"{{driver_id}}\",\n  \"amount\": 35000,\n  \"paymentMethod\": \"Wallet\"\n}"
-            },
             "url": {
               "raw": "{{base_url}}/api/payments/process",
-              "host": ["{{base_url}}"],
-              "path": ["api", "payments", "process"]
-            },
-            "description": "Thanh toán thủ công có kèm Idempotency Key (dùng khi cuốc xe ở trạng thái PaymentPending)."
-          }
-        },
-        {
-          "name": "22. Refund Transaction (Saga Compensating)",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
               ]
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.unset('transaction_id');",
+                  "const id=pm.variables.replaceIn('{{$guid}}');pm.environment.set('manual_trip_id',id);pm.environment.set('idempotency_key',pm.environment.get('run_tag')+'-'+id);",
+                  "const ids = JSON.parse(pm.environment.get('created_payment_trip_ids') || '[]'); ids.push(pm.environment.get('manual_trip_id')); pm.environment.set('created_payment_trip_ids', JSON.stringify(ids));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code < 300) pm.environment.set('transaction_id', pm.response.json().data.transactionId);",
+                  "if (pm.response.code === 200) {",
+                  " const d=pm.response.json().data;",
+                  " pm.test('Balanced 80/20 fare split',()=>{pm.expect(d.riderDebitAmount).to.eql(1000);pm.expect(d.driverCreditAmount).to.eql(800);pm.expect(d.platformFeeAmount).to.eql(200);});",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same idempotency key blocked",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same trip different key blocked",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}-duplicate"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refund manual transaction",
+          "request": {
             "method": "POST",
             "header": [
               {
@@ -754,31 +1831,44 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reason\": \"Hoàn tiền theo chính sách khiếu nại của khách hàng\"\n}"
-            },
             "url": {
               "raw": "{{base_url}}/api/payments/{{transaction_id}}/refund",
-              "host": ["{{base_url}}"],
-              "path": ["api", "payments", "{{transaction_id}}", "refund"]
-            },
-            "description": "Hoàn tiền cho chuyến đi và sinh bút toán đảo ngược cân bằng sổ cái kép."
-          }
-        },
-        {
-          "name": "23. Link Payment Token (PCI-DSS)",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{transaction_id}}",
+                "refund"
               ]
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Second refund blocked",
+          "request": {
             "method": "POST",
             "header": [
               {
@@ -786,67 +1876,1265 @@
                 "value": "application/json"
               }
             ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{transaction_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{transaction_id}}",
+                "refund"
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider\": \"Momo\",\n  \"token\": \"momo_test_token_abc123\",\n  \"isDefault\": true\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/payment-tokens",
-              "host": ["{{base_url}}"],
-              "path": ["api", "payment-tokens"]
-            },
-            "description": "Liên kết thẻ hoặc ví điện tử (chỉ nhận token chuẩn hóa, không nhận số thẻ/CVV)."
-          }
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "24. Get User Payment Tokens",
+          "name": "Manual refund restores wallet",
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/payment-tokens",
-              "host": ["{{base_url}}"],
-              "path": ["api", "payment-tokens"]
-            },
-            "description": "Lấy danh sách các nguồn tiền đã liên kết của người dùng."
-          }
-        },
-        {
-          "name": "25. Get Rider Wallet Balance",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{rider_token}}",
-                  "type": "string"
-                }
-              ]
-            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/accounts/{{rider_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "accounts", "{{rider_id}}"]
-            },
-            "description": "Tra cứu số dư tài khoản ví của khách hàng."
-          }
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{rider_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Wallet restored',()=>pm.expect(pm.response.json().data.balance).to.eql(Number(pm.environment.get('wallet_before_manual'))));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "26. Get Driver Wallet Balance",
+          "name": "Link Momo test token",
           "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"Momo\",\n  \"token\": \"tok_{{run_tag}}_Momo\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('payment_token_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_token_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_token_ids', JSON.stringify(ids));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pay using simulated Momo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Momo\",\"paymentTokenId\":\"{{payment_token_id}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.unset('transaction_id');",
+                  "const id=pm.variables.replaceIn('{{$guid}}');pm.environment.set('manual_trip_id',id);pm.environment.set('idempotency_key',pm.environment.get('run_tag')+'-'+id);",
+                  "const ids = JSON.parse(pm.environment.get('created_payment_trip_ids') || '[]'); ids.push(pm.environment.get('manual_trip_id')); pm.environment.set('created_payment_trip_ids', JSON.stringify(ids));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code < 300) pm.environment.set('transaction_id', pm.response.json().data.transactionId);",
+                  "if (pm.response.code === 200) {",
+                  " const d=pm.response.json().data;",
+                  " pm.test('Balanced 80/20 fare split',()=>{pm.expect(d.riderDebitAmount).to.eql(1000);pm.expect(d.driverCreditAmount).to.eql(800);pm.expect(d.platformFeeAmount).to.eql(200);});",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refund Momo payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{transaction_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{transaction_id}}",
+                "refund"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Link VNPay test token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"VNPay\",\n  \"token\": \"tok_{{run_tag}}_VNPay\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('payment_token_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_token_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_token_ids', JSON.stringify(ids));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pay using simulated VNPay",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"VNPay\",\"paymentTokenId\":\"{{payment_token_id}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.unset('transaction_id');",
+                  "const id=pm.variables.replaceIn('{{$guid}}');pm.environment.set('manual_trip_id',id);pm.environment.set('idempotency_key',pm.environment.get('run_tag')+'-'+id);",
+                  "const ids = JSON.parse(pm.environment.get('created_payment_trip_ids') || '[]'); ids.push(pm.environment.get('manual_trip_id')); pm.environment.set('created_payment_trip_ids', JSON.stringify(ids));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code < 300) pm.environment.set('transaction_id', pm.response.json().data.transactionId);",
+                  "if (pm.response.code === 200) {",
+                  " const d=pm.response.json().data;",
+                  " pm.test('Balanced 80/20 fare split',()=>{pm.expect(d.riderDebitAmount).to.eql(1000);pm.expect(d.driverCreditAmount).to.eql(800);pm.expect(d.platformFeeAmount).to.eql(200);});",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refund VNPay payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{transaction_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{transaction_id}}",
+                "refund"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Link Stripe test token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"Stripe\",\n  \"token\": \"tok_{{run_tag}}_Stripe\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('payment_token_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_token_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_token_ids', JSON.stringify(ids));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pay using simulated Stripe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Stripe\",\"paymentTokenId\":\"{{payment_token_id}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.unset('transaction_id');",
+                  "const id=pm.variables.replaceIn('{{$guid}}');pm.environment.set('manual_trip_id',id);pm.environment.set('idempotency_key',pm.environment.get('run_tag')+'-'+id);",
+                  "const ids = JSON.parse(pm.environment.get('created_payment_trip_ids') || '[]'); ids.push(pm.environment.get('manual_trip_id')); pm.environment.set('created_payment_trip_ids', JSON.stringify(ids));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code < 300) pm.environment.set('transaction_id', pm.response.json().data.transactionId);",
+                  "if (pm.response.code === 200) {",
+                  " const d=pm.response.json().data;",
+                  " pm.test('Balanced 80/20 fare split',()=>{pm.expect(d.riderDebitAmount).to.eql(1000);pm.expect(d.driverCreditAmount).to.eql(800);pm.expect(d.platformFeeAmount).to.eql(200);});",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refund Stripe payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{transaction_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{transaction_id}}",
+                "refund"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List rider payment tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read driver wallet",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{driver_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{driver_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject unsupported provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"Unknown\",\n  \"token\": \"test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject payment without key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject negative amount",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}-negative"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":-1,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject insufficient balance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{run_tag}}-insufficient"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":999999999,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id=pm.variables.replaceIn('{{$guid}}');",
+                  "pm.environment.set('manual_trip_id',id);",
+                  "const ids=JSON.parse(pm.environment.get('created_payment_trip_ids')||'[]');ids.push(id);pm.environment.set('created_payment_trip_ids',JSON.stringify(ids));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown refund transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{missing_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "{{missing_id}}",
+                "refund"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Link failing gateway token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payment-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payment-tokens"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"Stripe\",\n  \"token\": \"tok_fail_{{run_tag}}\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('payment_token_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_token_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_token_ids', JSON.stringify(ids));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gateway timeout attempt 1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Stripe\",\"paymentTokenId\":\"{{payment_token_id}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.unset('transaction_id');",
+                  "const id=pm.variables.replaceIn('{{$guid}}');pm.environment.set('manual_trip_id',id);pm.environment.set('idempotency_key',pm.environment.get('run_tag')+'-'+id);",
+                  "const ids = JSON.parse(pm.environment.get('created_payment_trip_ids') || '[]'); ids.push(pm.environment.get('manual_trip_id')); pm.environment.set('created_payment_trip_ids', JSON.stringify(ids));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 502', () => pm.response.to.have.status(502));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gateway timeout retry same key (no stale Redis lock)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/payments/process",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "process"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Stripe\",\"paymentTokenId\":\"{{payment_token_id}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 502', () => pm.response.to.have.status(502));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06. Authorization regressions",
+      "description": "",
+      "item": [
+        {
+          "name": "Create private security fixture",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quoteId\": \"{{quote_id}}\",\n  \"pickupLatitude\": {{pickup_latitude}}, \"pickupLongitude\": {{pickup_longitude}},\n  \"pickupAddress\": \"{{run_tag}} pickup\",\n  \"dropoffLatitude\": {{dropoff_latitude}}, \"dropoffLongitude\": {{dropoff_longitude}},\n  \"dropoffAddress\": \"{{run_tag}} dropoff\",\n  \"distanceKm\": {{distance_km}}, \"estimatedDurationMinutes\": {{duration_minutes}},\n  \"estimatedFare\": {{estimated_fare}}, \"vehicleType\": \"Bike\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) pm.environment.set('security_trip_id', pm.response.json().data.id);",
+                  "const ids = JSON.parse(pm.environment.get('created_trip_ids') || '[]'); ids.push(pm.response.json().data.id); pm.environment.set('created_trip_ids', JSON.stringify(ids));",
+                  "pm.test('Trip status 0', () => pm.expect(pm.response.json().data.status).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unrelated driver cannot read rider trip",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{security_trip_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{security_trip_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver2_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unrelated driver cannot read overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{security_trip_id}}/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{security_trip_id}}",
+                "overview"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver2_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unrelated driver cannot confirm quote",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{security_trip_id}}/confirm-quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{security_trip_id}}",
+                "confirm-quote"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver2_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Owner still reads fixture",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{security_trip_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{security_trip_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rider cannot update driver GPS",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver_id}}/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"latitude\":{{driver_latitude}},\"longitude\":{{driver_longitude}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Driver cannot update another driver GPS",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/drivers/{{driver2_id}}/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver2_id}}",
+                "location"
+              ]
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -857,37 +3145,211 @@
                 }
               ]
             },
-            "method": "GET",
-            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"latitude\":{{driver_latitude}},\"longitude\":{{driver_longitude}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing downstream identity rejected",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
-              "raw": "{{base_url}}/api/accounts/{{driver_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "accounts", "{{driver_id}}"]
+              "raw": "{{matching_url}}/api/drivers/{{driver_id}}/location",
+              "host": [
+                "{{matching_url}}"
+              ],
+              "path": [
+                "api",
+                "drivers",
+                "{{driver_id}}",
+                "location"
+              ]
             },
-            "description": "Tra cứu số dư tài khoản ví của tài xế."
-          }
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"latitude\":{{driver_latitude}},\"longitude\":{{driver_longitude}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel security fixture",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/trips/{{security_trip_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "trips",
+                "{{security_trip_id}}",
+                "cancel"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trip status 8', () => pm.expect(pm.response.json().data.status).to.eql(8));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "06. Dev & System Utilities",
-      "description": "Các endpoint hỗ trợ kiểm tra hoạt động hệ thống và kiểm thử giả lập.",
+      "name": "07. Gateway aliases",
+      "description": "",
       "item": [
         {
-          "name": "27. Gateway Health Check",
+          "name": "Alias POST /trips/{{missing_id}}/driver-accept",
           "request": {
-            "method": "GET",
+            "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/",
-              "host": ["{{base_url}}"],
-              "path": [""]
+              "raw": "{{base_url}}/trips/{{missing_id}}/driver-accept",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trips",
+                "{{missing_id}}",
+                "driver-accept"
+              ]
             },
-            "description": "Kiểm tra trạng thái hoạt động của API Gateway."
-          }
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "28. Simulate TripRequested Event (Matching Direct)",
+          "name": "Alias POST /trips/{{missing_id}}/pickup",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trips/{{missing_id}}/pickup",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trips",
+                "{{missing_id}}",
+                "pickup"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias POST /trips/{{missing_id}}/dropoff",
           "request": {
             "method": "POST",
             "header": [
@@ -896,21 +3358,1065 @@
                 "value": "application/json"
               }
             ],
+            "url": {
+              "raw": "{{base_url}}/trips/{{missing_id}}/dropoff",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trips",
+                "{{missing_id}}",
+                "dropoff"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{driver_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"tripId\": \"99998888-7777-6666-5555-444433332222\",\n  \"riderId\": \"{{rider_id}}\",\n  \"pickupLatitude\": 10.7769,\n  \"pickupLongitude\": 106.7009,\n  \"pickupAddress\": \"Điểm đón test\",\n  \"dropoffLatitude\": 10.7829,\n  \"dropoffLongitude\": 106.6989,\n  \"dropoffAddress\": \"Điểm trả test\",\n  \"distanceKm\": 3.0,\n  \"estimatedDurationMinutes\": 10,\n  \"estimatedFare\": 45000,\n  \"vehicleType\": \"Bike\"\n}"
-            },
+              "raw": "{\n  \"paymentMethod\": \"Wallet\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias POST /payments/{{missing_id}}/refund",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
-              "raw": "http://localhost:5248/dev/simulate-trip-requested",
-              "protocol": "http",
-              "host": ["localhost"],
-              "port": "5248",
-              "path": ["dev", "simulate-trip-requested"]
+              "raw": "{{base_url}}/payments/{{missing_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments",
+                "{{missing_id}}",
+                "refund"
+              ]
             },
-            "description": "Bắn trực tiếp event TripRequestedEvent vào RabbitMQ để kiểm thử độc lập MatchingService."
-          }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{run_tag}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias POST /match",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/match",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "match"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"vehicleType\":\"Bike\",\"radiusKm\":5,\"limit\":10}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias POST /quote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/quote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "quote"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"dropoffLatitude\":{{dropoff_latitude}},\"dropoffLongitude\":{{dropoff_longitude}},\"vehicleType\":\"Bike\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const ids = JSON.parse(pm.environment.get('created_quote_ids') || '[]'); ids.push(pm.response.json().data.quoteId); pm.environment.set('created_quote_ids', JSON.stringify(ids));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias POST /payments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/payments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{manual_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"driverId\":\"{{driver_id}}\",\"amount\":1000,\"paymentMethod\":\"Wallet\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias POST /trips",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/trips",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trips"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alias GET /trips/{{missing_id}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/trips/{{missing_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "trips",
+                "{{missing_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08. SignalR Long Polling",
+      "description": "",
+      "item": [
+        {
+          "name": "SignalR negotiate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips/negotiate?negotiateVersion=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips",
+                "negotiate?negotiateVersion=1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.environment.set('connection_token',d.connectionToken);pm.test('Transports offered',()=>pm.expect(d.availableTransports.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SignalR start Long Polling",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SignalR JSON handshake",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"protocol\":\"json\",\"version\":1}\u001e"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SignalR read handshake",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Handshake accepted',()=>pm.expect(pm.response.text()).to.include('{}'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JoinDriverRoom",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": 1, \"invocationId\": \"0\", \"target\": \"JoinDriverRoom\", \"arguments\": [\"{{driver_id}}\"]}\u001e"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JoinDriverRoom completion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const frames=pm.response.text().split('\\x1e').filter(Boolean).map(JSON.parse); pm.test('Hub invocation completed',()=>pm.expect(frames.some(f=>f.type===3 && f.invocationId==='0' && !f.error)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "LeaveDriverRoom",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": 1, \"invocationId\": \"1\", \"target\": \"LeaveDriverRoom\", \"arguments\": [\"{{driver_id}}\"]}\u001e"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "LeaveDriverRoom completion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const frames=pm.response.text().split('\\x1e').filter(Boolean).map(JSON.parse); pm.test('Hub invocation completed',()=>pm.expect(frames.some(f=>f.type===3 && f.invocationId==='1' && !f.error)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JoinTripRoom",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": 1, \"invocationId\": \"2\", \"target\": \"JoinTripRoom\", \"arguments\": [\"{{trip_id}}\"]}\u001e"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JoinTripRoom completion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const frames=pm.response.text().split('\\x1e').filter(Boolean).map(JSON.parse); pm.test('Hub invocation completed',()=>pm.expect(frames.some(f=>f.type===3 && f.invocationId==='2' && !f.error)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "LeaveTripRoom",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": 1, \"invocationId\": \"3\", \"target\": \"LeaveTripRoom\", \"arguments\": [\"{{trip_id}}\"]}\u001e"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "LeaveTripRoom completion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const frames=pm.response.text().split('\\x1e').filter(Boolean).map(JSON.parse); pm.test('Hub invocation completed',()=>pm.expect(frames.some(f=>f.type===3 && f.invocationId==='3' && !f.error)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SignalR disconnect",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/hubs/trips?id={{connection_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hubs",
+                "trips?id={{connection_token}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 202', () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09. System and development utilities",
+      "description": "",
+      "item": [
+        {
+          "name": "Gateway status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "trip_url status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trip_url}}/",
+              "host": [
+                "{{trip_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "trip_url OpenAPI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trip_url}}/openapi/v1.json",
+              "host": [
+                "{{trip_url}}"
+              ],
+              "path": [
+                "openapi",
+                "v1.json"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "matching_url status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{matching_url}}/",
+              "host": [
+                "{{matching_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "matching_url OpenAPI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{matching_url}}/openapi/v1.json",
+              "host": [
+                "{{matching_url}}"
+              ],
+              "path": [
+                "openapi",
+                "v1.json"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "payment_url status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{payment_url}}/",
+              "host": [
+                "{{payment_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "payment_url OpenAPI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{payment_url}}/openapi/v1.json",
+              "host": [
+                "{{payment_url}}"
+              ],
+              "path": [
+                "openapi",
+                "v1.json"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payment Scalar docs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{payment_url}}/scalar/v1",
+              "host": [
+                "{{payment_url}}"
+              ],
+              "path": [
+                "scalar",
+                "v1"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dev simulator on cancelled fixture only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{matching_url}}/dev/simulate-trip-requested",
+              "host": [
+                "{{matching_url}}"
+              ],
+              "path": [
+                "dev",
+                "simulate-trip-requested"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tripId\":\"{{cancel_trip_id}}\",\"riderId\":\"{{rider_id}}\",\"pickupLatitude\":{{pickup_latitude}},\"pickupLongitude\":{{pickup_longitude}},\"pickupAddress\":\"{{run_tag}}\",\"dropoffLatitude\":{{dropoff_latitude}},\"dropoffLongitude\":{{dropoff_longitude}},\"dropoffAddress\":\"{{run_tag}}\",\"vehicleType\":\"Bike\",\"distanceKm\":{{distance_km}},\"estimatedDurationMinutes\":{{duration_minutes}},\"estimatedFare\":{{estimated_fare}},\"excludedDriverIds\":[]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('cancel_trip_id')) throw new Error('Run cancellation fixture first; never publish a fixed or empty trip id.');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 202', () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{rider_token}}",
+        "type": "string"
+      }
+    ]
+  }
 }

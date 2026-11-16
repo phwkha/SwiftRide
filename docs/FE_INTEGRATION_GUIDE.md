@@ -2,16 +2,26 @@
 
 Tài liệu tập trung vào **gửi gì, nhận gì, gửi/nhận vào lúc nào** theo mã backend hiện tại. JSON bên dưới là ví dụ minh họa, không phải dữ liệu live; ID, thời gian, giá và token phải lấy từ response thực tế.
 
+Đã đối chiếu code và kiểm tra trực tiếp server ngày **16/11/2026**. Phạm vi kiểm tra, kết quả từng endpoint và các giới hạn còn lại nằm trong [báo cáo kiểm tra server](FE_API_VERIFICATION_2026-11-16.md).
+
 ## 1. Quy ước chung
 
-- Base URL local: `http://localhost:5000`. Các route REST nghiệp vụ dưới đây đều đi qua Gateway.
+- Base URL server bàn giao FE: `https://kha-dev.impala-tritone.ts.net`.
+- Base URL khi tự chạy backend local: `http://localhost:5000`. Các route REST nghiệp vụ dưới đây đều đi qua Gateway.
+- Base URL **không bao gồm `/api`**: ví dụ login là `https://kha-dev.impala-tritone.ts.net/api/auth/login`. FE không gọi trực tiếp các port microservice.
 - Header **Auth** trong từng mục nghĩa là `Authorization: Bearer <accessToken>`. Login/refresh không cần header này.
 - Request có JSON body gửi thêm `Content-Type: application/json`. Các API ghi rõ “không có body” không cần gửi `{}`.
 - Không tự gửi `X-User-Id`, `X-User-Role`, `X-User-Email`: Gateway gắn chúng từ JWT.
 - ID là chuỗi GUID. Tiền là number theo VND; tọa độ là number; thời gian là chuỗi ISO 8601.
 - `Trip.status` trong REST là number; `newStatus` trong event realtime là string.
 - Thông báo `message`, `traceId`, ID và timestamp có thể thay đổi. Dùng HTTP status và `errors[].code` để xử lý logic.
-- Collection gọi tay: [APIs Only](../postman/SwiftRide.APIsOnly.postman_collection.json), dùng cùng [environment](../postman/SwiftRide.postman_environment.json).
+- Collection gọi tay: [APIs Only](../postman/SwiftRide.APIsOnly.postman_collection.json), dùng cùng [environment server](../postman/SwiftRide.Server.postman_environment.json) hoặc [environment local](../postman/SwiftRide.postman_environment.json). Environment server để trống `demo_password`; điền mật khẩu demo được BE cung cấp, khớp cấu hình server. Không Run toàn bộ collection như một kịch bản tuần tự vì reject/cancel là nhánh thay thế.
+
+### Kết nối từ trình duyệt
+
+- Preflight CORS trên server đã trả đúng header cho `http://localhost:3000`, `http://localhost:5173`, `http://localhost:5174`, bao gồm `Authorization`, `Content-Type`, `X-Idempotency-Key`.
+- Nếu FE chạy bằng origin khác (khác scheme/host/port), BE phải thêm origin đó vào `Cors:AllowedOrigins` của Gateway. HTTP 204 của OPTIONS chưa đủ: cần có `Access-Control-Allow-Origin` khớp origin FE. Postman/cURL không kiểm tra chính sách CORS của trình duyệt.
+- Dùng HTTPS cho REST và URL HTTPS của SignalR; SignalR tự dùng WSS khi chọn transport WebSocket.
 
 ### Envelope REST
 
@@ -662,6 +672,8 @@ Không có body.
 **Lỗi cần xử lý:** 404 TRIP_NOT_FOUND khi không có chuyến hoạt động; đây là trạng thái bình thường của màn hình đặt xe.
 
 **Sau khi nhận response:** data là một Trip, không phải danh sách. Dùng khôi phục màn hình sau đăng nhập/reload.
+
+Môi trường demo có sẵn chuyến seed `f47ac10b-58cc-4372-a567-0e02b2c3d479` ở Requested, `fareConfirmed:false`; do đó Rider có thể nhận HTTP 200 ngay lần đầu gọi active dù chưa thao tác đặt xe. Khôi phục theo dữ liệu response, không mặc định mọi tài khoản mới đều nhận 404. Dữ liệu như `distanceKm` có thể được làm tròn khi lưu; GET snapshot là dữ liệu hiện tại để đồng bộ UI.
 
 ### 12. Đọc chi tiết chuyến
 
@@ -1423,16 +1435,17 @@ Không gọi accept rồi reject/cancel như các bước bắt buộc của cù
 
 ### 8.1 Kết nối SignalR
 
-- Hub URL: `http://localhost:5000/hubs/trips`.
+- Hub URL server: `https://kha-dev.impala-tritone.ts.net/hubs/trips`; local: `http://localhost:5000/hubs/trips`.
 - Dùng client SignalR với `accessTokenFactory` trả accessToken hiện tại. Client xử lý negotiate/transport; không gửi raw WebSocket JSON theo kiểu REST.
 - Đăng ký handler nhận event trước khi kết nối/join phòng.
 - Các lời gọi hub dưới đây nhận **một chuỗi GUID**, không nhận object `{driverId:...}` hoặc `{tripId:...}`.
 - Hub method không trả ApiResponse hay Trip. Promise invoke hoàn tất nghĩa là lời gọi hub đã xử lý; nếu lỗi thì promise reject.
-- Phòng hiện join theo ID client gửi; chỉ join phòng của user/chuyến liên quan, không coi cơ chế join hiện tại là bảo đảm ownership phía server.
+- Hub hiện chưa bắt buộc JWT: negotiate không token cũng trả 200; code Hub không kiểm tra quyền join phòng. FE vẫn gửi token và chỉ join phòng của user/chuyến liên quan. BE cần bổ sung xác thực và quyền truy cập Hub trước khi dùng dữ liệu thực; việc FE tự giới hạn phòng không thay thế kiểm tra phía server.
 
 ```ts
+const apiBaseUrl = "https://kha-dev.impala-tritone.ts.net";
 const hub = new signalR.HubConnectionBuilder()
-  .withUrl("http://localhost:5000/hubs/trips", {
+  .withUrl(`${apiBaseUrl}/hubs/trips`, {
     accessTokenFactory: () => accessTokenHienTai,
   })
   .withAutomaticReconnect()
@@ -1741,7 +1754,7 @@ sequenceDiagram
 - Sau reconnect hoặc khi nhận event quan trọng, GET lại Trip/overview. Không giả định event đến đúng thứ tự hoặc mỗi event chỉ xuất hiện một lần.
 - Hiện backend không phát TripStatusChanged cho mọi bước start-route/pick-up/drop-off/Paid/Completed. PaymentPending cũng chưa có event frontend riêng trong các consumer realtime hiện tại.
 - Khi chờ thanh toán hoặc mất realtime, có thể poll GET trip khoảng 2–3 giây với giới hạn thời gian; dừng khi Completed/Cancelled/Failed, rời màn hình hoặc logout. PaymentPending cần hiển thị nhánh xử lý riêng.
-- availability/GPS/polling cùng chia sẻ hạn mức nghiệp vụ khoảng 100 request/phút/user; auth khoảng 10 request/phút. Tránh gửi chồng request và xử lý HTTP 429 bằng backoff.
+- Gateway cấu hình hạn mức nghiệp vụ 100 request/phút và auth 10 request/phút. Middleware rate limiter hiện chạy trước authentication, nên không bảo đảm chia riêng theo user; các client cùng IP có thể chia sẻ hạn mức. Tránh gửi chồng request và xử lý HTTP 429 bằng backoff. Endpoint overview và Hub hiện không gắn policy rate limit này.
 - UI xử lý 401 bằng refresh một lần, 403 bằng dừng thao tác, 404 tùy ngữ cảnh, 409 bằng tải lại trạng thái. Không đổi idempotency key để vượt PAYMENT_DUPLICATE.
 
 ## 11. Endpoint tiện ích không thuộc luồng FE

@@ -117,6 +117,9 @@ public class PaymentAppService
         var record = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
         if (record is not null)
         {
+            if (record.Status == IdempotencyStatus.Success && record.RequestHash != ComputeHash(request))
+                throw new PaymentException(ErrorCodes.PaymentDuplicate, 409,
+                    "Khoa idempotency da duoc su dung cho request khac.");
             if (record.Status == IdempotencyStatus.Success && record.ResponsePayload is not null)
                 return JsonSerializer.Deserialize<PaymentResponse>(record.ResponsePayload)!;
 

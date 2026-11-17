@@ -4,6 +4,34 @@ Base URL: `https://kha-dev.impala-tritone.ts.net`.
 
 Đối chiếu với [FE_INTEGRATION_GUIDE.md](FE_INTEGRATION_GUIDE.md), route/DTO/consumer trong source hiện tại và gọi trực tiếp server bằng tài khoản demo. Kiểm tra WebSocket thực tế, không chỉ negotiate. Không triển khai hay sửa code backend trên server.
 
+## Cập nhật khắc phục ngày 17/11/2026 — code local, chưa triển khai server
+
+Đã sửa 4 hạn chế ưu tiên trong workspace. Toàn bộ kết quả **live ngày 16/11** ở các phần sau vẫn là lịch sử của bản server trước sửa; không dùng chúng để kết luận bản sửa đã hoạt động trên server. Hướng dẫn FE đã cập nhật theo contract của bản sửa.
+
+| Hạn chế | Thay đổi trong code | Quy tắc sau khi triển khai |
+|---|---|---|
+| Hub thiếu xác thực/phân quyền | Gateway bảo vệ cả route Hub và negotiate; TripService xác thực JWT, kiểm tra danh tính và chủ phòng | Không JWT/sai JWT/hết hạn → 401; chỉ Driver chính chủ vào phòng Driver; chỉ Rider chủ chuyến hoặc Driver được gán join Trip; GUID sai và người ngoài bị từ chối |
+| Availability thiếu quyền chính chủ | MatchingService lấy user từ JWT được xác thực tại service, bỏ tin tưởng header danh tính | Chỉ role Driver với sub trùng path id; sai role/ID → 403, không cập nhật repository |
+| Process/refund thiếu quyền và đối chiếu dữ liệu | Process chỉ cho Rider chủ chuyến; lấy snapshot từ TripService bằng JWT của người gọi; refund chỉ Rider chủ chuyến hoặc Admin | Process chỉ chạy khi PaymentPending, driverId/actualFare hợp lệ; body khác dữ liệu Trip → 400 PAYMENT_TRIP_MISMATCH; sai trạng thái → 409 PAYMENT_NOT_PENDING; thiếu quyền → 403; không xác minh được Trip → 503 và không ghi sổ |
+| Đọc ví thiếu kiểm tra quyền | PaymentService kiểm tra chủ ví từ JWT trước truy vấn số dư | Chủ ví hoặc Admin được đọc; user khác → 403; không thể giả mạo bằng X-User-Id/X-User-Role |
+
+### Cấu hình và triển khai bản sửa
+
+- TripService, MatchingService, PaymentService đều xác thực JWT trực tiếp. REST không còn dùng danh tính mặc định khi Development hoặc tin tưởng X-User-* do client gửi. Gateway overview chuyển tiếp Bearer để giữ được quyền đọc Trip/vị trí.
+- Tất cả service phải dùng cùng `Jwt__Secret`, `Jwt__Issuer`, `Jwt__Audience` với Gateway. Compose đã truyền các giá trị này từ `SWIFTRIDE_JWT_SECRET`, `SWIFTRIDE_JWT_ISSUER`, `SWIFTRIDE_JWT_AUDIENCE`; secret tối thiểu 32 byte UTF-8. Khi chạy `dotnet run` riêng từng service, cần truyền cấu hình tương tự; không đưa signing secret cho FE.
+- PaymentService cần `Downstream__TripService` trỏ trực tiếp TripService, không trỏ ngược Gateway. Compose đã đặt `http://trip-service:8080`; local mặc định `http://localhost:5105`. Nếu service không truy cập được hoặc snapshot không hợp lệ, process/refund của Rider bị từ chối thay vì ghi tiền khi chưa xác minh.
+- Cần build/deploy đồng bộ Gateway, TripService, MatchingService và PaymentService. Lệnh khi triển khai bằng Compose: `docker compose up -d --build api-gateway trip-service matching-service payment-service`. Lệnh này **chưa được chạy** trên server trong lần sửa này.
+- Sau triển khai cần smoke test lại login → Wallet trip, PaymentPending → retry, refund, đọc ví; kiểm tra 401 khi không JWT và 403 khi dùng tài khoản khác. Giữ SignalR accessTokenFactory và join lại phòng sau reconnect. Bản sửa đóng kết nối Hub khi JWT hết hạn.
+
+### Kiểm thử local của bản sửa
+
+- `dotnet test SwiftRide.slnx --no-restore -m:1`: **108/108 ca qua**, gồm 54 ca trong Security.Tests, 19 TripService, 19 MatchingService và 16 PaymentService.
+- Security.Tests chạy HTTP và WebSocket bằng ASP.NET TestHost với JWT ký thật cho test; kiểm tra token thiếu/giả/hết hạn, giả mạo X-User-*, quyền vào phòng, availability, ví, process và refund. Ledger dùng EF InMemory; Trip lookup được giả lập ở kiểm thử API và kiểm tra HTTP client riêng. Chưa chạy bản sửa với SQL/PostgreSQL/RabbitMQ/Redis thật hoặc server triển khai.
+- Các ca từ chối process/refund xác nhận số dư và bút toán không bị thay đổi. Có kiểm thử đối chiếu rider/driver/amount, chỉ cho phép PaymentPending, TripService không khả dụng, chuyển tiếp Bearer, và không trả response thanh toán cũ khi tái sử dụng idempotency key với request khác.
+- `docker compose config --quiet` hợp lệ. NuGet vẫn báo cảnh báo dependency có sẵn (SignalR Redis/OpenTelemetry) và xung đột phiên bản EF Relational; việc nâng cấp dependency nằm ngoài 4 sửa đổi này.
+
+Các hạn chế matching timeout, rate limit, sự kiện realtime còn thiếu, cổng thanh toán thật và chức năng tài khoản/lịch sử chưa được xử lý trong bản sửa này.
+
 ## Kết luận
 
 **Có thể bàn giao để FE bắt đầu tích hợp trên môi trường demo**, kèm các giới hạn bên dưới. Route, HTTP method, envelope, tên trường response và payload realtime đã kiểm tra đều khớp tài liệu. Đã cập nhật base URL/Hub URL trong hướng dẫn và thêm [Postman environment server](../postman/SwiftRide.Server.postman_environment.json).

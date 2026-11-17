@@ -1,3 +1,4 @@
+using SwiftRide.Security;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -13,6 +14,7 @@ using TripService.Domain.Interfaces;
 using TripService.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSwiftRideAuthentication(builder.Configuration, signalR: true);
 
 foreach (var requiredConnection in new[] { "TripDbConnection", "RabbitMq" })
 {
@@ -127,9 +129,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Map SignalR hub
-app.MapHub<TripHub>("/hubs/trips");
+app.MapHub<TripHub>("/hubs/trips", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
 
 app.MapGet("/", () => Results.Ok(new { Service = "TripService", Status = "Running" }));
 app.MapTripEndpoints();

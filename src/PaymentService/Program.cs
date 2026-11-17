@@ -1,3 +1,4 @@
+using SwiftRide.Security;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -15,6 +16,7 @@ using Scalar.AspNetCore;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSwiftRideAuthentication(builder.Configuration);
 
 foreach (var requiredConnection in new[] { "PaymentDbConnection", "RabbitMq" })
 {
@@ -73,6 +75,13 @@ builder.Services.AddDbContext<PaymentDbContext>(options =>
 builder.Services.AddSingleton<PaymentMethodFactory>();
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<PaymentAppService>();
+builder.Services.AddScoped<PaymentRequestAuthorization>();
+builder.Services.AddHttpClient<ITripSnapshotClient, TripSnapshotClient>(client =>
+{
+    var baseUrl = builder.Configuration["Downstream:TripService"] ?? "http://localhost:5105";
+    client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 // Register MassTransit with RabbitMQ
 builder.Services.AddMassTransit(x =>
@@ -110,6 +119,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/", () => Results.Ok(new { Service = "PaymentService", Status = "Running" }));
 app.MapPaymentEndpoints();

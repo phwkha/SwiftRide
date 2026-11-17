@@ -1,3 +1,4 @@
+using SwiftRide.Security;
 using TripService.Application.DTOs;
 using TripService.Application.Services;
 
@@ -5,15 +6,9 @@ namespace TripService.Api;
 
 public static class TripEndpoints
 {
-    private static readonly Guid DefaultRiderId =
-        Guid.Parse("11111111-1111-1111-1111-111111111111");
-
-    private static readonly Guid DefaultDriverId =
-        Guid.Parse("22222222-2222-2222-2222-222222222222");
-
     public static IEndpointRouteBuilder MapTripEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var trips = endpoints.MapGroup("/api/trips");
+        var trips = endpoints.MapGroup("/api/trips").RequireAuthorization();
 
         trips.MapPost("", CreateTripAsync);
         trips.MapPost("/{id:guid}/confirm-quote", ConfirmQuoteAsync);
@@ -35,7 +30,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultRiderId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -48,7 +43,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultRiderId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -60,7 +55,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultRiderId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -73,7 +68,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultRiderId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -86,7 +81,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultDriverId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -100,7 +95,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultDriverId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -113,7 +108,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultDriverId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -126,7 +121,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultDriverId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -140,7 +135,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultDriverId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -154,7 +149,7 @@ public static class TripEndpoints
         ITripAppService service,
         CancellationToken ct)
     {
-        var user = ReadUserId(httpContext, DefaultRiderId);
+        var user = ReadUserId(httpContext);
         if (user.Error is not null)
             return user.Error;
 
@@ -164,28 +159,12 @@ public static class TripEndpoints
     private static IResult ToResult(ApiResponse<TripDto> response)
         => Results.Json(response, statusCode: response.StatusCode);
 
-    private static (Guid Id, IResult? Error) ReadUserId(
-        HttpContext httpContext,
-        Guid fallback)
+    private static (Guid Id, IResult? Error) ReadUserId(HttpContext httpContext)
     {
-        if (!httpContext.Request.Headers.TryGetValue("X-User-Id", out var value) ||
-            string.IsNullOrWhiteSpace(value))
-        {
-            var env = httpContext.RequestServices.GetRequiredService<IHostEnvironment>();
-            if (env.IsDevelopment())
-                return (fallback, null);
-
-            return (Guid.Empty, ToResult(ApiResponse<TripDto>.Fail(
-                401,
-                "UNAUTHORIZED",
-                "Missing X-User-Id header.")));
-        }
-
-        return Guid.TryParse(value, out var userId) && userId != Guid.Empty
-            ? (userId, null)
+        var userId = httpContext.User.AuthenticatedUserId();
+        return userId is Guid id
+            ? (id, null)
             : (Guid.Empty, ToResult(ApiResponse<TripDto>.Fail(
-                400,
-                "INVALID_USER_ID",
-                "X-User-Id must be a non-empty GUID.")));
+                401, "UNAUTHORIZED", "Missing authenticated user identity.")));
     }
 }

@@ -6,9 +6,11 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY ["src/Shared.Contracts/Shared.Contracts.csproj", "src/Shared.Contracts/"]
+COPY ["src/Shared.Security/Shared.Security.csproj", "src/Shared.Security/"]
 COPY ["src/MatchingService/MatchingService.csproj", "src/MatchingService/"]
 RUN dotnet restore "src/MatchingService/MatchingService.csproj"
 COPY ["src/Shared.Contracts/", "src/Shared.Contracts/"]
+COPY ["src/Shared.Security/", "src/Shared.Security/"]
 COPY ["src/MatchingService/", "src/MatchingService/"]
 WORKDIR "/src/src/MatchingService"
 RUN dotnet build "MatchingService.csproj" -c Release -o /app/build

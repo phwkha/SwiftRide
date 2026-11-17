@@ -4,6 +4,8 @@ Tài liệu tập trung vào **gửi gì, nhận gì, gửi/nhận vào lúc nà
 
 Đã đối chiếu code và kiểm tra trực tiếp server ngày **16/11/2026**. Phạm vi kiểm tra, kết quả từng endpoint và các giới hạn còn lại nằm trong [báo cáo kiểm tra server](FE_API_VERIFICATION_2026-11-16.md).
 
+**Cập nhật code ngày 17/11/2026:** Đã bổ sung JWT tại các microservice và phân quyền Hub, availability, thanh toán/refund, đọc ví. Các quy tắc mới bên dưới có hiệu lực khi triển khai bản sửa; chưa triển khai hoặc xác minh lại server sau sửa. Chi tiết triển khai nằm ở phần cập nhật 17/11 trong báo cáo.
+
 ## 1. Quy ước chung
 
 - Base URL server bàn giao FE: `https://kha-dev.impala-tritone.ts.net`.
@@ -420,7 +422,7 @@ Backend kiểm tra role Driver và ID; Rider hoặc tài xế khác bị từ ch
 
 Path id lấy từ tài khoản Driver đang đăng nhập.
 
-**Header:** Auth của Driver trong luồng frontend + `Content-Type: application/json`.
+**Header:** Auth của Driver có user.id trùng path id + `Content-Type: application/json`. Rider, Admin và tài xế khác không được sửa availability này.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
@@ -451,7 +453,7 @@ Path id lấy từ tài khoản Driver đang đăng nhập.
 }
 ```
 
-**Lỗi cần xử lý:** 400 INVALID_DRIVER_ID; 404 DRIVER_NOT_FOUND; 409 DRIVER_RESERVED khi bật mà tài xế đang được giữ cho chuyến.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi sai role hoặc ID; 400 INVALID_DRIVER_ID; 404 DRIVER_NOT_FOUND; 409 DRIVER_RESERVED khi bật mà tài xế đang được giữ cho chuyến.
 
 **Sau khi nhận response:** Kết nối và JoinDriverRoom trước khi bật online để nhận đề nghị.
 
@@ -1181,7 +1183,9 @@ Không có body.
 
 Dùng khi cần retry PaymentPending; không gọi ngay sau drop-off đang thanh toán tự động.
 
-**Header:** Auth của user trong luồng thanh toán + `Content-Type: application/json`.
+**Header:** Auth của Rider chủ chuyến + `Content-Type: application/json`. Driver và Admin không gọi API thanh toán lại thay Rider.
+
+Server đọc lại Trip bằng JWT người gọi trước khi ghi sổ. Trip phải đang PaymentPending (5), có driverId và actualFare > 0. riderId, driverId và amount trong body phải khớp snapshot; không dùng estimatedFare khi actualFare đã có. Nếu không xác minh được Trip, server từ chối xử lý và không trừ tiền.
 
 Header bổ sung:
 ```http
@@ -1235,7 +1239,7 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
 }
 ```
 
-**Lỗi cần xử lý:** 400 VALIDATION_ERROR nếu thiếu key; 422 INSUFFICIENT_BALANCE / VALIDATION_ERROR; 409 PAYMENT_DUPLICATE; 502 PAYMENT_GATEWAY_ERROR.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi sai role hoặc chủ chuyến; 404 NOT_FOUND nếu không có Trip; 400 PAYMENT_TRIP_MISMATCH khi rider/driver/amount không khớp; 400 VALIDATION_ERROR nếu thiếu key; 422 INSUFFICIENT_BALANCE / VALIDATION_ERROR; 409 PAYMENT_NOT_PENDING khi Trip chưa/sau giai đoạn thanh toán lại; 409 PAYMENT_DUPLICATE; 502 PAYMENT_GATEWAY_ERROR; 503 TRIP_SERVICE_UNAVAILABLE khi không xác minh được Trip.
 
 **Sau khi nhận response:** Giữ nguyên key và payload khi retry lỗi tạm thời; không sinh key mới mỗi lần nhấn retry. Lưu transactionId. 409 không trả lại PaymentResponse thành công một cách bảo đảm: có thể giao dịch đang chạy/đã chạy. Các cổng ngoài hiện là giả lập.
 
@@ -1245,7 +1249,7 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
 
 Path dùng transactionId từ Payment response hoặc PaymentCompleted, không dùng tripId.
 
-**Header:** Auth của user trong luồng hoàn tiền + `Content-Type: application/json`.
+**Header:** Auth của Rider chủ chuyến gắn với giao dịch hoặc Admin + `Content-Type: application/json`. Driver và Rider khác bị từ chối. Với Rider, server xác minh quyền qua TripService trước khi hoàn tiền; không xác minh được thì không thay đổi số dư.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
@@ -1279,7 +1283,7 @@ Path dùng transactionId từ Payment response hoặc PaymentCompleted, không d
 }
 ```
 
-**Lỗi cần xử lý:** 404 NOT_FOUND; 409 PAYMENT_DUPLICATE nếu không phải giao dịch có thể hoàn hoặc đã hoàn.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi không có quyền; 404 NOT_FOUND; 409 PAYMENT_DUPLICATE nếu không phải giao dịch có thể hoàn hoặc đã hoàn; 503 TRIP_SERVICE_UNAVAILABLE khi không xác minh được Trip cho Rider.
 
 **Sau khi nhận response:** transactionId trong response là giao dịch gốc được hoàn, không phải ID bút toán hoàn mới. Đọc lại ví; không tự đổi Trip từ Completed về Requested.
 
@@ -1375,7 +1379,7 @@ Không có body.
 
 Path ownerId là user.id của ví cần hiển thị.
 
-**Header:** Auth của user trong luồng ví.
+**Header:** Auth của user có user.id trùng ownerId hoặc Admin. User khác không được đọc ví này.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
@@ -1402,7 +1406,7 @@ Không có body.
 }
 ```
 
-**Lỗi cần xử lý:** 404 NOT_FOUND.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi không phải chủ ví hoặc Admin; 404 NOT_FOUND.
 
 **Sau khi nhận response:** Ví Driver có ownerType Driver; accountType là chuỗi như WalletLiability/PlatformRevenue/EscrowHolding. Số dư ví là dữ liệu live, không mặc định luôn 500000. Refresh sau thanh toán/hoàn tiền.
 
@@ -1440,7 +1444,8 @@ Không gọi accept rồi reject/cancel như các bước bắt buộc của cù
 - Đăng ký handler nhận event trước khi kết nối/join phòng.
 - Các lời gọi hub dưới đây nhận **một chuỗi GUID**, không nhận object `{driverId:...}` hoặc `{tripId:...}`.
 - Hub method không trả ApiResponse hay Trip. Promise invoke hoàn tất nghĩa là lời gọi hub đã xử lý; nếu lỗi thì promise reject.
-- Hub hiện chưa bắt buộc JWT: negotiate không token cũng trả 200; code Hub không kiểm tra quyền join phòng. FE vẫn gửi token và chỉ join phòng của user/chuyến liên quan. BE cần bổ sung xác thực và quyền truy cập Hub trước khi dùng dữ liệu thực; việc FE tự giới hạn phòng không thay thế kiểm tra phía server.
+- Hub bắt buộc JWT hợp lệ ở Gateway và TripService; negotiate thiếu/sai/hết hạn token trả 401. Driver chỉ join/leave phòng driverId của mình; JoinTripRoom chỉ cho Rider chủ chuyến hoặc Driver được gán. Admin không có quyền join phòng chuyến mặc định. ID phòng phải là GUID khác rỗng; server chuẩn hóa GUID trước khi đặt tên phòng.
+- Hub invoke bị từ chối sẽ reject với lỗi như FORBIDDEN_DRIVER_ACCESS, FORBIDDEN_TRIP_ACCESS hoặc INVALID_ROOM_ID; không phải envelope REST. LeaveTripRoom chỉ xóa chính connection hiện tại, vẫn cho rời phòng khi assignment đã thay đổi. Kết nối đóng khi JWT hết hạn; client lấy token mới rồi reconnect và join lại phòng.
 
 ```ts
 const apiBaseUrl = "https://kha-dev.impala-tritone.ts.net";

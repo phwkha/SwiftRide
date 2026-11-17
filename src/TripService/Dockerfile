@@ -6,9 +6,11 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY ["src/Shared.Contracts/Shared.Contracts.csproj", "src/Shared.Contracts/"]
+COPY ["src/Shared.Security/Shared.Security.csproj", "src/Shared.Security/"]
 COPY ["src/TripService/TripService.csproj", "src/TripService/"]
 RUN dotnet restore "src/TripService/TripService.csproj"
 COPY ["src/Shared.Contracts/", "src/Shared.Contracts/"]
+COPY ["src/Shared.Security/", "src/Shared.Security/"]
 COPY ["src/TripService/", "src/TripService/"]
 WORKDIR "/src/src/TripService"
 RUN dotnet build "TripService.csproj" -c Release -o /app/build

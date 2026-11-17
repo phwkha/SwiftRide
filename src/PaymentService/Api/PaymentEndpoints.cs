@@ -7,69 +7,75 @@ namespace PaymentService.Api;
 
 /// <summary>
 /// 5 REST endpoints cua Payment Service (#19 - #23 trong api_contract_and_fe_integration.md).
-/// X-User-Id do API Gateway bom vao sau khi xac thuc JWT.
+/// Identity comes from JWT validated locally; external identity headers are ignored.
 /// </summary>
 public static class PaymentEndpoints
 {
     public static IEndpointRouteBuilder MapPaymentEndpoints(this IEndpointRouteBuilder app)
     {
+        var api = app.MapGroup("/api").RequireAuthorization();
         // #19 - SD 12, SD 13: Thanh toan lai thu cong khi PaymentPending
-        app.MapPost("/api/payments/process", async (
+        api.MapPost("/payments/process", async (
                 ProcessPaymentRequest request,
                 HttpContext http,
                 PaymentAppService service,
+                PaymentRequestAuthorization access,
                 CancellationToken ct) =>
             {
                 var key = http.Request.Headers["X-Idempotency-Key"].ToString();
-                var result = await service.ProcessPaymentAsync(request, key, ct);
+                var verified = await access.AuthorizeProcessAsync(http.User, http.Request.Headers.Authorization.ToString(), request, ct);
+                var result = await service.ProcessPaymentAsync(verified, key, ct);
                 return Results.Ok(ApiResponse<PaymentResponse>.Ok(result, "Thanh toan thanh cong", http.TraceIdentifier));
             })
             .WithTags("Payments");
 
         // #20 - SD 14: Hoan tien & giao dich bu tru Saga
-        app.MapPost("/api/payments/{transactionId:guid}/refund", async (
+        api.MapPost("/payments/{transactionId:guid}/refund", async (
                 Guid transactionId,
                 RefundPaymentRequest request,
                 HttpContext http,
                 PaymentAppService service,
+                PaymentRequestAuthorization access,
                 CancellationToken ct) =>
             {
+                await access.AuthorizeRefundAsync(http.User, http.Request.Headers.Authorization.ToString(), transactionId, ct);
                 var result = await service.RefundAsync(transactionId, request.Reason, ct);
                 return Results.Ok(ApiResponse<RefundPaymentResponse>.Ok(result, "Hoan tien thanh cong", http.TraceIdentifier));
             })
             .WithTags("Payments");
 
         // #21 - SD 15: Lien ket nguon tien (chi nhan token, khong nhan so the/CVV)
-        app.MapPost("/api/payment-tokens", async (
+        api.MapPost("/payment-tokens", async (
                 CreatePaymentTokenRequest request,
                 HttpContext http,
                 PaymentAppService service,
                 CancellationToken ct) =>
             {
-                var result = await service.CreateTokenAsync(GetUserId(http), request, ct);
+                var result = await service.CreateTokenAsync(PaymentRequestAuthorization.RequireUser(http.User), request, ct);
                 return Results.Created($"/api/payment-tokens/{result.Id}",
                     ApiResponse<PaymentTokenDto>.Created(result, "Lien ket nguon tien thanh cong", http.TraceIdentifier));
             })
             .WithTags("Payment Tokens");
 
         // #22 - SD 15: Danh sach nguon tien da lien ket
-        app.MapGet("/api/payment-tokens", async (
+        api.MapGet("/payment-tokens", async (
                 HttpContext http,
                 PaymentAppService service,
                 CancellationToken ct) =>
             {
-                var result = await service.GetTokensAsync(GetUserId(http), ct);
+                var result = await service.GetTokensAsync(PaymentRequestAuthorization.RequireUser(http.User), ct);
                 return Results.Ok(ApiResponse<List<PaymentTokenDto>>.Ok(result, traceId: http.TraceIdentifier));
             })
             .WithTags("Payment Tokens");
 
         // #23 - Tra cuu so du vi
-        app.MapGet("/api/accounts/{ownerId:guid}", async (
+        api.MapGet("/accounts/{ownerId:guid}", async (
                 Guid ownerId,
                 HttpContext http,
                 PaymentAppService service,
                 CancellationToken ct) =>
             {
+                PaymentRequestAuthorization.RequireAccountAccess(http.User, ownerId);
                 var result = await service.GetAccountAsync(ownerId, ct);
                 return Results.Ok(ApiResponse<AccountDto>.Ok(result, traceId: http.TraceIdentifier));
             })
@@ -78,11 +84,4 @@ public static class PaymentEndpoints
         return app;
     }
 
-    private static Guid GetUserId(HttpContext http)
-    {
-        var raw = http.Request.Headers["X-User-Id"].ToString();
-        return Guid.TryParse(raw, out var userId)
-            ? userId
-            : throw new PaymentException(ErrorCodes.Unauthorized, 401, "Thieu hoac sai header X-User-Id.");
-    }
 }

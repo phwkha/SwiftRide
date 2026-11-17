@@ -1,3 +1,4 @@
+using SwiftRide.Security;
 using MassTransit;
 using MatchingService.Api;
 using MatchingService.Application.Consumers;
@@ -15,6 +16,7 @@ using StackExchange.Redis;
 using SwiftRide.Contracts.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSwiftRideAuthentication(builder.Configuration);
 
 foreach (var requiredConnection in new[] { "RabbitMq" })
 {
@@ -108,6 +110,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/", () => Results.Ok(new { Service = "MatchingService", Status = "Running" }));
 app.MapMatchingEndpoints();

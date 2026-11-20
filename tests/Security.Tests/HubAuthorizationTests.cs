@@ -2,10 +2,13 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using MassTransit;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using SwiftRide.Contracts.Events;
 using TripService.Api.Hubs;
 using TripService.Domain.Entities;
 using TripService.Domain.Interfaces;
@@ -67,6 +70,53 @@ public class HubAuthorizationTests
     }
 
     [Fact]
+    public async Task ExpiredConnection_ClosesAndFreshConnectionCanRejoinAndReceiveStatus()
+    {
+        var trip = new Trip { RiderId = TestApp.Rider };
+        await using var app = await StartAsync(trip);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var ct = timeout.Token;
+        using var expired = await ConnectAsync(app, TestApp.Token(TestApp.Rider, "Rider", lifetime: TimeSpan.FromSeconds(3)), ct);
+        await JoinAsync(expired, trip.Id, ct);
+
+        var buffer = new byte[8192];
+        WebSocketReceiveResult frame;
+        do
+        {
+            frame = await expired.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+        } while (frame.MessageType != WebSocketMessageType.Close);
+
+        using var reconnected = await ConnectAsync(app, TestApp.Token(TestApp.Rider, "Rider"), ct);
+        await JoinAsync(reconnected, trip.Id, ct);
+        var consumer = new TripStatusChangedSignalRConsumer(app.Services.GetRequiredService<IHubContext<TripHub>>());
+        var context = new Mock<ConsumeContext<TripStatusChangedEvent>>();
+        context.SetupGet(x => x.Message).Returns(new TripStatusChangedEvent(trip.Id, "PaymentPending", TestApp.Driver, DateTimeOffset.UtcNow));
+        await consumer.Consume(context.Object);
+        var received = await ReadAsync(reconnected, ct);
+        Assert.Equal("TripStatusChanged", received.GetProperty("target").GetString());
+        var payload = received.GetProperty("arguments")[0];
+        Assert.Equal(trip.Id, payload.GetProperty("tripId").GetGuid());
+        Assert.Equal("PaymentPending", payload.GetProperty("newStatus").GetString());
+    }
+
+    private static async Task<WebSocket> ConnectAsync(WebApplication app, string token, CancellationToken ct)
+    {
+        var ws = await app.GetTestServer().CreateWebSocketClient().ConnectAsync(
+            new Uri("ws://localhost/hubs/trips?access_token=" + token), ct);
+        await SendAsync(ws, "{\"protocol\":\"json\",\"version\":1}", ct);
+        await ReadAsync(ws, ct);
+        return ws;
+    }
+
+    private static async Task JoinAsync(WebSocket ws, Guid tripId, CancellationToken ct)
+    {
+        await SendAsync(ws, JsonSerializer.Serialize(new { type = 1, invocationId = "1", target = "JoinTripRoom", arguments = new[] { tripId } }), ct);
+        var completion = await ReadAsync(ws, ct);
+        Assert.Equal(3, completion.GetProperty("type").GetInt32());
+        Assert.False(completion.TryGetProperty("error", out _));
+    }
+
+    [Fact]
     public async Task TripRoom_RejectsUnknownAndMalformedIds()
     {
         await using var app = await StartAsync(new Trip());
@@ -89,10 +139,7 @@ public class HubAuthorizationTests
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var ct = timeout.Token;
-        using var ws = await app.GetTestServer().CreateWebSocketClient().ConnectAsync(
-            new Uri("ws://localhost/hubs/trips?access_token=" + TestApp.Token(user, role)), ct);
-        await SendAsync(ws, "{\"protocol\":\"json\",\"version\":1}", ct);
-        await ReadAsync(ws, ct);
+        using var ws = await ConnectAsync(app, TestApp.Token(user, role), ct);
         await SendAsync(ws, JsonSerializer.Serialize(new { type = 1, invocationId = "1", target = method, arguments = new[] { id } }), ct);
         var completion = await ReadAsync(ws, ct);
         Assert.Equal(3, completion.GetProperty("type").GetInt32());

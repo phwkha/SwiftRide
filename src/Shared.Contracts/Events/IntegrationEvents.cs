@@ -94,6 +94,10 @@ public record PaymentFailedEvent(Guid TripId, string Status, string Reason);
 public record TripCancelledEvent(Guid TripId, Guid? DriverId, Guid RiderId, string Reason);
 public record TripCompletedEvent(Guid TripId, Guid RiderId, Guid DriverId, decimal TotalAmount, Guid TransactionId);
 
+// TripService -> TripHub only after the state change is committed.
+public record TripStatusChangedEvent(
+    Guid TripId, string NewStatus, Guid? DriverId, DateTimeOffset Timestamp, string? CancellationReason = null);
+
 // 13. PaymentService -> All (hoàn tiền thành công ở SD 14)
 public record PaymentRefundedEvent(
     Guid TransactionId,

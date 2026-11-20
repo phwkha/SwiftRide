@@ -6,6 +6,8 @@ Tài liệu tập trung vào **gửi gì, nhận gì, gửi/nhận vào lúc nà
 
 **Cập nhật code ngày 17/11/2026:** Đã bổ sung JWT tại các microservice và phân quyền Hub, availability, thanh toán/refund, đọc ví. Các quy tắc mới bên dưới có hiệu lực khi triển khai bản sửa; chưa triển khai hoặc xác minh lại server sau sửa. Chi tiết triển khai nằm ở phần cập nhật 17/11 trong báo cáo.
 
+**Cập nhật ngày 20/11/2026:** Server demo đã xác nhận tạo nguồn tiền HTTP 201. Phần event mới, reconnect và rate limit bên dưới mô tả code trong workspace. Xem kết quả kiểm tra và phạm vi triển khai trong [báo cáo](FE_API_VERIFICATION_2026-11-16.md#cập-nhật-ngày-20112026).
+
 ## 1. Quy ước chung
 
 - Base URL server bàn giao FE: `https://kha-dev.impala-tritone.ts.net`.
@@ -913,7 +915,7 @@ Không có body.
 
 **Lỗi cần xử lý:** 403 FORBIDDEN_TRIP_ACCESS; 404 TRIP_NOT_FOUND; 409 TRIP_INVALID_TRANSITION / TRIP_CONCURRENCY_CONFLICT.
 
-**Sau khi nhận response:** REST trả status = 2. Hiện không có TripStatusChanged riêng cho bước này; dùng response để cập nhật UI.
+**Sau khi nhận response:** REST trả status = 2. Client thực hiện action cập nhật UI từ response. Các client đang theo dõi nhận `TripStatusChanged` với `newStatus` là `EnRoute` sau khi lưu trạng thái.
 
 ### 16. Xác nhận đón khách
 
@@ -1451,13 +1453,24 @@ Không gọi accept rồi reject/cancel như các bước bắt buộc của cù
 const apiBaseUrl = "https://kha-dev.impala-tritone.ts.net";
 const hub = new signalR.HubConnectionBuilder()
   .withUrl(`${apiBaseUrl}/hubs/trips`, {
-    accessTokenFactory: () => accessTokenHienTai,
+    accessTokenFactory: () => getFreshAccessToken(),
   })
   .withAutomaticReconnect()
   .build();
 // signalR là client @microsoft/signalr đã import trong frontend.
-// Đăng ký hub.on(...) trước start; xem payload ở phần 9.
+// Nối getFreshAccessToken với auth store của ứng dụng theo phần reconnect.
+// Đăng ký hub.on(...) và hub.onreconnected(...) trước start.
+async function syncRooms() {
+  // Hai hàm này là adapter của ứng dụng, dùng session và Trip snapshot hiện tại.
+  const { driverId, tripId } = await getAuthorizedRooms();
+  if (driverId) await hub.invoke("JoinDriverRoom", driverId);
+  if (tripId) await hub.invoke("JoinTripRoom", tripId);
+  if (tripId) await reloadTrip(tripId);
+}
+
+hub.onreconnected(() => syncRooms().catch(showRealtimeSyncError));
 await hub.start();
+await syncRooms();
 ```
 
 ### 8.2 Bốn lời gọi client → server
@@ -1662,7 +1675,22 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **FE xử lý:** Thông báo tìm xe thất bại, đọc lại Trip. Đây là cùng tên event TripStatusChanged với hai mục trên, không phải tên event MatchingFailed cho frontend.
 
-### 9.7 PaymentCompleted
+Với code ngày 20/11, server phát `Failed` sau khi đã ghi trạng thái Trip, kể cả khi vượt giới hạn từ chối. Payload có thể thêm `driverId` với giá trị `null`.
+
+### 9.7 TripStatusChanged — di chuyển và thanh toán
+
+| `newStatus` | Khi nào phát | Trạng thái REST liên quan |
+|---|---|---|
+| `EnRoute` | Lưu thành công action start-route | 2 |
+| `PickedUp` | Lưu thành công action pick-up | 3 |
+| `DroppedOff` | Lưu thành công action drop-off | 4 |
+| `PaymentPending` | TripService lưu kết quả thanh toán cần thử lại | 5 |
+| `Paid` | TripService lưu bước đã quyết toán | 6, có thể đọc thấy 7 ngay |
+| `Completed` | TripService lưu chuyến hoàn tất | 7 |
+
+Payload trực tiếp gồm `tripId`, `newStatus`, `driverId`, `timestamp` và `cancellationReason` (null ở các bước trên). `timestamp` là thời điểm chuyển trạng thái. `Paid` và `Completed` có thể được ghi trong cùng transaction với cùng timestamp. Khi nhận một trong hai sự kiện, FE đọc lại snapshot và áp dụng trạng thái hiện tại. Tiếp tục dùng `PaymentCompleted` để lấy transactionId.
+
+### 9.8 PaymentCompleted
 
 **Người nhận:** User trong phòng tripId.
 
@@ -1692,7 +1720,7 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **FE xử lý:** Lưu transactionId, hiển thị thanh toán thành công, tải lại ví và Trip. Có thể nhận event trước khi Trip chuyển Completed trong SQL; tiếp tục poll ngắn có giới hạn thay vì coi response Trip còn DroppedOff là thất bại.
 
-### 9.8 Ví dụ đăng ký nhận payload
+### 9.9 Ví dụ đăng ký nhận payload
 
 ```ts
 hub.on("ReceiveTripOffer", payload => {
@@ -1755,11 +1783,11 @@ sequenceDiagram
 
 ### Reconnect, bỏ lỡ event và lỗi
 
-- Sau reconnect, gọi lại JoinDriverRoom/JoinTripRoom cho các phòng còn theo dõi; phòng không tự được khôi phục chỉ nhờ có accessToken.
-- Sau reconnect hoặc khi nhận event quan trọng, GET lại Trip/overview. Không giả định event đến đúng thứ tự hoặc mỗi event chỉ xuất hiện một lần.
-- Hiện backend không phát TripStatusChanged cho mọi bước start-route/pick-up/drop-off/Paid/Completed. PaymentPending cũng chưa có event frontend riêng trong các consumer realtime hiện tại.
+- Dùng `accessTokenFactory` để đọc token mới từ auth store mỗi lần SDK cần token. `getFreshAccessToken()` nên gọi refresh khi sắp hết hạn, chẳng hạn còn dưới 30 giây. Dùng chung một promise refresh cho REST và SignalR để tránh đổi cùng refresh token hai lần. Cập nhật cả cặp token sau refresh. Nếu refresh trả 401, dừng kết nối và yêu cầu đăng nhập lại.
+- Server đóng Hub khi JWT của kết nối hết hạn. SDK reconnect bằng token mới. Trong `onreconnected`, đọc lại chuyến đang theo dõi, gọi lại `JoinDriverRoom` nếu đang nhận chuyến và `JoinTripRoom` nếu vẫn có quyền, rồi GET lại Trip/overview để bù sự kiện bị lỡ. Nếu join hoặc GET lỗi, hiển thị trạng thái mất đồng bộ và dùng polling có giới hạn. Xử lý lần `start()` đầu thất bại riêng vì `withAutomaticReconnect()` chỉ xử lý sau lần kết nối đầu đã thành công.
+- `TripStatusChanged` là tín hiệu để đọc lại snapshot. Event có thể đến trễ, lặp hoặc đảo thứ tự, nhất là `Paid` và `Completed`. Gộp các lần tải lại gần nhau để tránh dồn request. Offer bị lỡ khi mất kết nối không tự được gửi lại. Driver bỏ offer đã quá `expiresAt` và mở lại màn nhận chuyến sau khi reconnect.
 - Khi chờ thanh toán hoặc mất realtime, có thể poll GET trip khoảng 2–3 giây với giới hạn thời gian; dừng khi Completed/Cancelled/Failed, rời màn hình hoặc logout. PaymentPending cần hiển thị nhánh xử lý riêng.
-- Gateway cấu hình hạn mức nghiệp vụ 100 request/phút và auth 10 request/phút. Middleware rate limiter hiện chạy trước authentication, nên không bảo đảm chia riêng theo user; các client cùng IP có thể chia sẻ hạn mức. Tránh gửi chồng request và xử lý HTTP 429 bằng backoff. Endpoint overview và Hub hiện không gắn policy rate limit này.
+- Gateway xác thực trước rate limit. Hạn mức nghiệp vụ là 100 request/phút và auth là 10 request/phút. JWT hợp lệ dùng bucket theo user, request chưa xác thực dùng bucket theo địa chỉ kết nối. Khi đặt Gateway sau proxy, BE có thể khai báo địa chỉ proxy tin cậy bằng `ForwardedHeaders__TrustedProxies__0` để tính IP client. FE xử lý HTTP 429 bằng backoff. Endpoint overview và Hub hiện chưa gắn policy này.
 - UI xử lý 401 bằng refresh một lần, 403 bằng dừng thao tác, 404 tùy ngữ cảnh, 409 bằng tải lại trạng thái. Không đổi idempotency key để vượt PAYMENT_DUPLICATE.
 
 ## 11. Endpoint tiện ích không thuộc luồng FE

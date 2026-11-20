@@ -99,7 +99,7 @@ builder.Services.AddMassTransit(x =>
     x.AddConsumer<PaymentSettledSignalRConsumer>();
     x.AddConsumer<TripAcceptedSignalRConsumer>();
     x.AddConsumer<TripCancelledSignalRConsumer>();
-    x.AddConsumer<MatchingFailedSignalRConsumer>();
+    x.AddConsumer<TripStatusChangedSignalRConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {

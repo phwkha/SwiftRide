@@ -80,10 +80,12 @@ public sealed class PaymentSettledConsumer : IConsumer<PaymentSettledEvent>
                 JsonOptions)
         };
 
-        await _tripWriter.UpdateWithHistoriesAndOutboxAsync(
+        var outboxes = histories.Select(history => TripStatusOutbox.Create(trip, history)).ToList();
+        outboxes.Add(outbox);
+        await _tripWriter.UpdateWithHistoriesAndOutboxesAsync(
             trip,
             histories,
-            outbox,
+            outboxes,
             context.CancellationToken);
     }
 

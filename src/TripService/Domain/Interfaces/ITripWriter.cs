@@ -11,9 +11,9 @@ public interface ITripWriter
         TripStatusHistory history,
         IReadOnlyCollection<OutboxMessage> outboxes,
         CancellationToken ct = default);
-    Task UpdateWithHistoriesAndOutboxAsync(
+    Task UpdateWithHistoriesAndOutboxesAsync(
         Trip trip,
         IReadOnlyCollection<TripStatusHistory> histories,
-        OutboxMessage outbox,
+        IReadOnlyCollection<OutboxMessage> outboxes,
         CancellationToken ct = default);
 }

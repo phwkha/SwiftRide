@@ -5,12 +5,18 @@ using SwiftRide.Contracts.Events;
 namespace TripService.Api.Hubs;
 
 // Consumer 1: Dispatch trip offer popup to driver (SD 11)
-public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext)
+public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext, ILogger<TripOfferDispatchedConsumer> logger)
     : IConsumer<TripOfferDispatchedEvent>
 {
     public async Task Consume(ConsumeContext<TripOfferDispatchedEvent> context)
     {
         var e = context.Message;
+        if (e.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            logger.LogWarning("Offer for trip {TripId} and driver {DriverId} arrived at the hub after expiry {ExpiresAt}.",
+                e.TripId, e.DriverId, e.ExpiresAt);
+        }
+
         var groupName = $"driver_{e.DriverId.ToString().ToLowerInvariant()}";
         await hubContext.Clients.Group(groupName)
             .SendAsync("ReceiveTripOffer", new
@@ -28,7 +34,8 @@ public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext)
                 e.DurationMinutes,
                 e.CountdownSeconds,
                 e.ExpiresAt
-            });
+            }, context.CancellationToken);
+        logger.LogInformation("Sent offer for trip {TripId} to SignalR driver group {DriverId}.", e.TripId, e.DriverId);
     }
 }
 
@@ -134,21 +141,14 @@ public class TripCancelledSignalRConsumer(IHubContext<TripHub> hubContext)
     }
 }
 
-// Consumer 7: Broadcast TripStatusChanged on matching failed (SD 11)
-public class MatchingFailedSignalRConsumer(IHubContext<TripHub> hubContext)
-    : IConsumer<MatchingFailedEvent>
+// Broadcast committed transitions for the trip room.
+public class TripStatusChangedSignalRConsumer(IHubContext<TripHub> hubContext)
+    : IConsumer<TripStatusChangedEvent>
 {
-    public async Task Consume(ConsumeContext<MatchingFailedEvent> context)
+    public Task Consume(ConsumeContext<TripStatusChangedEvent> context)
     {
         var e = context.Message;
-        var groupName = $"trip_{e.TripId.ToString().ToLowerInvariant()}";
-        await hubContext.Clients.Group(groupName)
-            .SendAsync("TripStatusChanged", new
-            {
-                e.TripId,
-                NewStatus = "Failed",
-                CancellationReason = e.Reason,
-                Timestamp = DateTimeOffset.UtcNow
-            });
+        return hubContext.Clients.Group($"trip_{e.TripId:D}")
+            .SendAsync("TripStatusChanged", e, context.CancellationToken);
     }
 }

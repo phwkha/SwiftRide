@@ -100,15 +100,15 @@ public class TripRepository : ITripReader, ITripWriter
         return _context.SaveChangesAsync(ct);
     }
 
-    public virtual async Task UpdateWithHistoriesAndOutboxAsync(
+    public virtual async Task UpdateWithHistoriesAndOutboxesAsync(
         Trip trip,
         IReadOnlyCollection<TripStatusHistory> histories,
-        OutboxMessage outbox,
+        IReadOnlyCollection<OutboxMessage> outboxes,
         CancellationToken ct = default)
     {
         _context.Trips.Update(trip);
         await _context.TripStatusHistories.AddRangeAsync(histories, ct);
-        await _context.OutboxMessages.AddAsync(outbox, ct);
+        await _context.OutboxMessages.AddRangeAsync(outboxes, ct);
         await _context.SaveChangesAsync(ct);
     }
 }

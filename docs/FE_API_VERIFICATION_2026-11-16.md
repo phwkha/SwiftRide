@@ -4,6 +4,22 @@ Base URL: `https://kha-dev.impala-tritone.ts.net`.
 
 Đối chiếu với [FE_INTEGRATION_GUIDE.md](FE_INTEGRATION_GUIDE.md), route/DTO/consumer trong source hiện tại và gọi trực tiếp server bằng tài khoản demo. Kiểm tra WebSocket thực tế, không chỉ negotiate. Không triển khai hay sửa code backend trên server.
 
+## Cập nhật ngày 20/11/2026
+
+| Mục | Kết quả |
+|---|---|
+| Matching timeout ngày 16/11 | Đọc lại được trip `e850d434-95a5-49bd-a8a4-af561fb954a0`. Snapshot còn `fareConfirmed:true`, không có driver và chuyển Cancelled sau khoảng 20 giây. Không có log lịch sử của các service để xác định đoạn nào đã mất offer. |
+| Lỗi ghép lại phát hiện khi đọc code | `RetryMatchingCommand` có thể đến trước `DriverRejectedOfferEvent`. Code cũ bỏ qua retry khi còn giữ tài xế vừa từ chối. Bản sửa giải phóng reservation bị loại trước khi tìm tài xế tiếp theo. Redis chỉ xóa lock của đúng chuyến. Đã thêm log theo `tripId` từ outbox đến matching và Hub. |
+| Rate limit | Gateway chạy authentication trước rate limit. JWT hợp lệ dùng bucket theo user, request chưa xác thực dùng IP kết nối. Header client tự gửi không đổi bucket. Có thể cấu hình proxy tin cậy theo `ForwardedHeaders__TrustedProxies__0`. Kiểm tra local bằng Gateway thật xác nhận HTTP 429 và Rider/Driver cùng IP có bucket riêng. |
+| `POST /api/payment-tokens` | **Live HTTP 201** với token Momo giả lập. Phản hồi có `Location`, trả token đã che và `isDefault:false`. `GET /api/payment-tokens` trả 200 và có bản ghi mới `4fad6876-9079-4b8b-ba6a-120bbcb8aad2`. Nguồn Momo mặc định cũ vẫn giữ nguyên. Bản ghi test còn trên server demo. |
+| Event trạng thái | Thêm `TripStatusChanged` cho `EnRoute`, `PickedUp`, `DroppedOff`, `PaymentPending`, `Paid`, `Completed`. Sự kiện được ghi vào outbox cùng thay đổi trạng thái. `Failed` cũng được phát qua outbox sau khi lưu, gồm trường hợp vượt giới hạn từ chối. |
+| Reconnect và JWT hết hạn | Test WebSocket local xác nhận kết nối bị đóng khi JWT hết hạn. Kết nối mới dùng JWT mới, join lại phòng và nhận event. Hướng dẫn FE mô tả cách dùng chung lần refresh giữa REST và SignalR, join lại và đọc snapshot. Hub ghi log nếu offer đến sau `expiresAt`. Việc tự giải phóng xe khi offer hết hạn tự nhiên vẫn cần xử lý riêng. |
+| Cảnh báo dependency | Nâng OpenTelemetry lên 1.21.0 và SignalR Redis lên 10.0.15. Docker runtime dùng ASP.NET Core 10.0.15. PaymentService tham chiếu EF Relational 10.0.12 để đồng bộ với các gói EF trong solution. Build sạch và NuGet không báo gói trực tiếp hoặc bắc cầu có lỗ hổng tại thời điểm kiểm tra. |
+
+`dotnet test SwiftRide.slnx --no-restore -m:1` qua **111/111 ca**. `docker compose config --quiet` hợp lệ. Test WebSocket dùng TestHost local và kiểm tra Gateway chạy trên loopback. Chưa chạy lại luồng nghiệp vụ hoàn chỉnh với bản sửa trên server.
+
+**Trạng thái bàn giao.** Đã có dữ liệu phản hồi thành công trên server demo cho cả 24 API trong bảng lịch sử. Bản sửa code ngày 20/11 vẫn ở workspace. Để đối chiếu lần timeout tiếp theo sau khi triển khai, lọc log `trip-service` và `matching-service` theo `tripId`. So thời điểm outbox publish, đặt/giải phóng reservation, phát offer và Hub gửi vào phòng. Log Hub cho biết server đã gửi vào group, còn FE cần theo dõi việc nhận event và trạng thái kết nối phía client.
+
 ## Cập nhật khắc phục ngày 17/11/2026 — code local, chưa triển khai server
 
 Đã sửa 4 hạn chế ưu tiên trong workspace. Toàn bộ kết quả **live ngày 16/11** ở các phần sau vẫn là lịch sử của bản server trước sửa; không dùng chúng để kết luận bản sửa đã hoạt động trên server. Hướng dẫn FE đã cập nhật theo contract của bản sửa.

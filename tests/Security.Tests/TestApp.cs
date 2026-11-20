@@ -37,12 +37,12 @@ internal static class TestApp
         return app;
     }
 
-    internal static string Token(Guid user, string role, string? secret = null, bool expired = false)
+    internal static string Token(Guid user, string role, string? secret = null, bool expired = false, TimeSpan? lifetime = null)
     {
         var now = DateTime.UtcNow;
         var token = new JwtSecurityToken("SwiftRide.Gateway", "SwiftRide.Client",
             [new Claim("sub", user.ToString()), new Claim("role", role)],
-            notBefore: now.AddMinutes(-10), expires: expired ? now.AddMinutes(-1) : now.AddMinutes(5),
+            notBefore: now.AddMinutes(-10), expires: expired ? now.AddMinutes(-1) : now + (lifetime ?? TimeSpan.FromMinutes(5)),
             signingCredentials: new SigningCredentials(
                 new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret ?? Secret)), SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);

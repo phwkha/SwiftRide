@@ -1,9 +1,12 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using System.Net;
+using System.Security.Claims;
 using ApiGateway.Aggregation;
 using ApiGateway.Auth;
 using ApiGateway.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
@@ -96,27 +99,30 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// 3. Rate Limiting (User-ID/IP partitioned limiter with structured 429 response: gateway:ratelimit:{userId})
-static string GetClientIp(HttpContext httpContext)
+// Trust forwarded client addresses only from configured proxy peers.
+var trustedProxies = builder.Configuration.GetSection("ForwardedHeaders:TrustedProxies").Get<string[]>() ?? [];
+if (trustedProxies.Length > 0)
 {
-    var forwarded = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-    if (!string.IsNullOrWhiteSpace(forwarded))
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
     {
-        var firstIp = forwarded.Split(',')[0].Trim();
-        if (!string.IsNullOrEmpty(firstIp)) return firstIp;
-    }
-    return httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+        foreach (var proxy in trustedProxies)
+            options.KnownProxies.Add(IPAddress.Parse(proxy));
+    });
 }
 
+// 3. Rate limiting by authenticated user or remote address.
 static string GetPartitionKey(HttpContext httpContext)
 {
-    var userId = httpContext.User.FindFirst("sub")?.Value
-        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-        ?? httpContext.Request.Headers["X-User-Id"].FirstOrDefault();
+    var userId = httpContext.User.Identity?.IsAuthenticated == true
+        ? httpContext.User.FindFirstValue("sub") ?? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+        : null;
 
-    return !string.IsNullOrWhiteSpace(userId)
-        ? $"gateway:ratelimit:{userId}"
-        : $"gateway:ratelimit:{GetClientIp(httpContext)}";
+    return Guid.TryParse(userId, out var id) && id != Guid.Empty
+        ? $"user:{id:D}"
+        : $"ip:{httpContext.Connection.RemoteIpAddress}";
 }
 
 builder.Services.AddRateLimiter(options =>
@@ -172,9 +178,11 @@ builder.Services.AddHttpClient("DownstreamAggregator", client =>
 var app = builder.Build();
 
 // Middleware pipeline order
+if (trustedProxies.Length > 0)
+    app.UseForwardedHeaders();
 app.UseCors();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.UseMiddleware<HeaderInjectionMiddleware>();
 

@@ -2,6 +2,7 @@ using MassTransit;
 using MatchingService.Application.Services;
 using MatchingService.Domain.Interfaces;
 using Moq;
+using SwiftRide.Contracts.Events;
 using Xunit;
 
 namespace MatchingService.Tests;
@@ -14,6 +15,8 @@ public sealed class DriverMatchingAppServiceTests
     [Fact]
     public async Task MatchTripAsync_WhenNoDriver_RecordsFailureAndDuration()
     {
+        _driverRepositoryMock.Setup(r => r.GetDriversReservedForTripAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<MatchingService.Domain.Entities.Driver>());
         var outcomes = new System.Collections.Concurrent.ConcurrentBag<string>();
         var durations = new System.Collections.Concurrent.ConcurrentBag<double>();
         using var listener = new System.Diagnostics.Metrics.MeterListener();
@@ -54,6 +57,32 @@ public sealed class DriverMatchingAppServiceTests
         _driverRepositoryMock.Verify(r => r.ReserveNearestDriverAsync(It.IsAny<decimal>(), It.IsAny<decimal>(),
             It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         Assert.Empty(_publishEndpointMock.Invocations);
+    }
+
+    [Fact]
+    public async Task MatchTripAsync_RetryBeforeRejectionRelease_OffersToNextDriver()
+    {
+        var tripId = Guid.NewGuid();
+        var rejected = Guid.NewGuid();
+        var next = Guid.NewGuid();
+        var released = false;
+        _driverRepositoryMock.Setup(r => r.GetDriversReservedForTripAsync(tripId.ToString(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new() { DriverId = rejected.ToString() }]);
+        _driverRepositoryMock.Setup(r => r.ReleaseDriverAsync(rejected.ToString(), tripId.ToString(), It.IsAny<CancellationToken>()))
+            .Callback(() => released = true)
+            .Returns(Task.CompletedTask);
+        _driverRepositoryMock.Setup(r => r.ReserveNearestDriverAsync(10m, 106m, "Bike",
+                It.Is<IEnumerable<string>>(ids => ids.Contains(rejected.ToString())),
+                tripId.ToString(), It.IsAny<CancellationToken>()))
+            .Callback(() => Assert.True(released))
+            .ReturnsAsync(new MatchingService.Domain.Entities.Driver { DriverId = next.ToString() });
+
+        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        await service.MatchTripAsync(tripId, 10m, 106m, "pickup", 11m, 106m, "dropoff", "Bike", 5m, 10, 30000m, [rejected]);
+
+        _driverRepositoryMock.Verify(r => r.ReleaseDriverAsync(rejected.ToString(), tripId.ToString(), It.IsAny<CancellationToken>()), Times.Once);
+        _publishEndpointMock.Verify(p => p.Publish(It.Is<TripOfferDispatchedEvent>(e => e.TripId == tripId && e.DriverId == next),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

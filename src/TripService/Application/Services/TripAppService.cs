@@ -204,10 +204,15 @@ public sealed class TripAppService : ITripAppService
 
         var now = DateTimeOffset.UtcNow;
         var previousStatus = trip.Status;
-        trip.DriverRejectionCount++;
+        if (previousStatus != TripStatus.Requested)
+            return InvalidTransitionResponse("Offers can only be rejected while the trip is requested.");
+
         var excludedDriverIds = GetExcludedDriverIds(trip);
-        if (!excludedDriverIds.Contains(driverId))
-            excludedDriverIds.Add(driverId);
+        if (excludedDriverIds.Contains(driverId))
+            return ApiResponse<TripDto>.Ok(TripDto.FromEntity(trip));
+
+        trip.DriverRejectionCount++;
+        excludedDriverIds.Add(driverId);
         trip.ExcludedDriverIds = JsonSerializer.Serialize(excludedDriverIds, JsonOptions);
         trip.UpdatedAt = now;
 
@@ -231,6 +236,7 @@ public sealed class TripAppService : ITripAppService
             }
 
             trip.Status = nextState.Status;
+            trip.CancellationReason = reason ?? "No driver accepted the trip.";
         }
         else
         {
@@ -253,6 +259,8 @@ public sealed class TripAppService : ITripAppService
         }
 
         var history = CreateHistory(trip, previousStatus, "Driver rejected offer", now);
+        if (trip.Status == TripStatus.Failed)
+            outboxes.Add(TripStatusOutbox.Create(trip, history, trip.CancellationReason));
         await _tripWriter.UpdateWithOutboxesAsync(trip, history, outboxes, ct);
         return ApiResponse<TripDto>.Ok(TripDto.FromEntity(trip));
     }
@@ -360,7 +368,7 @@ public sealed class TripAppService : ITripAppService
                 paymentMethod.Trim(),
                 $"pay_trip_{trip.Id}"));
 
-        await _tripWriter.UpdateWithOutboxAsync(trip, history, outbox, ct);
+        await _tripWriter.UpdateWithOutboxesAsync(trip, history, [TripStatusOutbox.Create(trip, history), outbox], ct);
         return ApiResponse<TripDto>.Ok(TripDto.FromEntity(trip));
     }
 
@@ -442,7 +450,7 @@ public sealed class TripAppService : ITripAppService
 
         try
         {
-            await _tripWriter.UpdateWithOutboxAsync(trip, history, ct: ct);
+            await _tripWriter.UpdateWithOutboxAsync(trip, history, TripStatusOutbox.Create(trip, history), ct);
         }
         catch (DbUpdateConcurrencyException)
         {

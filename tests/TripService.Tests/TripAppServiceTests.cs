@@ -164,11 +164,39 @@ public class TripAppServiceTests
 
         Assert.Equal(TripStatus.DroppedOff, trip.Status);
         Assert.Equal(200, response.StatusCode);
-        writer.Verify(x => x.UpdateWithOutboxAsync(
+        writer.Verify(x => x.UpdateWithOutboxesAsync(
             trip,
             It.Is<TripStatusHistory>(h => h.ToStatus == TripStatus.DroppedOff),
-            It.Is<OutboxMessage>(m => m.EventType == nameof(TripDroppedOffEvent)),
+            It.Is<IReadOnlyCollection<OutboxMessage>>(messages =>
+                messages.Any(m => m.EventType == nameof(TripDroppedOffEvent)) &&
+                messages.Any(m => m.EventType == nameof(TripStatusChangedEvent))),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PickupAndStart_PublishCommittedTripStatuses()
+    {
+        var trip = CreateTrip(TripStatus.DriverAccepted);
+        trip.DriverId = DriverId;
+        var writer = new Mock<ITripWriter>();
+        var events = new List<TripStatusChangedEvent>();
+        writer.Setup(x => x.UpdateWithOutboxAsync(trip, It.IsAny<TripStatusHistory>(), It.IsAny<OutboxMessage>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<Trip, TripStatusHistory, OutboxMessage, CancellationToken>((_, history, message, _) =>
+            {
+                Assert.Equal(nameof(TripStatusChangedEvent), message.EventType);
+                var status = JsonSerializer.Deserialize<TripStatusChangedEvent>(
+                    message.Payload, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                Assert.Equal(history.ChangedAt, status.Timestamp);
+                events.Add(status);
+            });
+        var service = new TripAppService(writer.Object, ReaderFor(trip).Object);
+
+        Assert.Equal(200, (await service.StartRouteAsync(trip.Id, DriverId)).StatusCode);
+        Assert.Equal(200, (await service.PickUpAsync(trip.Id, DriverId)).StatusCode);
+
+        Assert.Equal(new[] { "EnRoute", "PickedUp" }, events.Select(e => e.NewStatus));
+        Assert.All(events, e => Assert.Equal(DriverId, e.DriverId));
     }
 
     [Fact]

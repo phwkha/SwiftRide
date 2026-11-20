@@ -84,6 +84,13 @@ public class OutboxPublisherService : BackgroundService
                     stoppingToken);
 
                 message.ProcessedAt = DateTimeOffset.UtcNow;
+                message.Error = null;
+                if (payload is TripRequestedEvent requested)
+                    _logger.LogInformation("Published matching request for trip {TripId} from outbox {MessageId} after {DelayMs} ms.",
+                        requested.TripId, message.Id, (message.ProcessedAt.Value - message.CreatedAt).TotalMilliseconds);
+                if (payload is RetryMatchingCommand retry)
+                    _logger.LogInformation("Published matching retry {Attempt} for trip {TripId} from outbox {MessageId}.",
+                        retry.Attempt, retry.TripId, message.Id);
                 _logger.LogDebug("Published outbox message {Id} of type {Type}.", message.Id, message.EventType);
             }
             catch (Exception ex)
@@ -109,6 +116,7 @@ public class OutboxPublisherService : BackgroundService
             nameof(TripDroppedOffEvent) => typeof(TripDroppedOffEvent),
             nameof(TripCancelledEvent) => typeof(TripCancelledEvent),
             nameof(TripCompletedEvent) => typeof(TripCompletedEvent),
+            nameof(TripStatusChangedEvent) => typeof(TripStatusChangedEvent),
             _ => throw new InvalidOperationException(
                 $"Unsupported outbox event type '{eventType}'.")
         };

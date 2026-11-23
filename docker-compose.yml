@@ -57,23 +57,35 @@ services:
       retries: 5
       start_period: 10s
 
-  # 4. RabbitMQ - Message Broker with Management Web UI
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: swiftride-rabbitmq
+  # 4. Kafka - Event broker (KRaft)
+  kafka:
+    image: apache/kafka:4.4.0
+    container_name: swiftride-kafka
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}
+      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_LISTENERS: "INTERNAL://:29092,HOST://:9092,CONTROLLER://:29093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,HOST://localhost:9092"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     ports:
-      - "5672:5672"     # AMQP protocol
-      - "15672:15672"   # Management Web UI
+      - "127.0.0.1:9092:9092"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: rabbitmq-diagnostics -q ping
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "kafka:29092", "--list"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
       start_period: 20s
 
@@ -107,14 +119,14 @@ services:
       Jwt__Audience: "${SWIFTRIDE_JWT_AUDIENCE:-SwiftRide.Client}"
       ConnectionStrings__TripDbConnection: "Server=sqlserver,1433;Database=TripDB;User Id=sa;Password=${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in the environment};TrustServerCertificate=True;MultipleActiveResultSets=true"
       Downstream__MatchingService: "http://matching-service:8080"
-      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
+      Kafka__BootstrapServers: "kafka:29092"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5105:8080"
     depends_on:
       sqlserver:
         condition: service_healthy
-      rabbitmq:
+      kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -132,14 +144,14 @@ services:
       Jwt__Issuer: "${SWIFTRIDE_JWT_ISSUER:-SwiftRide.Gateway}"
       Jwt__Audience: "${SWIFTRIDE_JWT_AUDIENCE:-SwiftRide.Client}"
       ConnectionStrings__MongoDbConnection: "mongodb://mongodb:27017"
-      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
+      Kafka__BootstrapServers: "kafka:29092"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
       - "5248:8080"
     depends_on:
       mongodb:
         condition: service_healthy
-      rabbitmq:
+      kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -157,7 +169,7 @@ services:
       Jwt__Issuer: "${SWIFTRIDE_JWT_ISSUER:-SwiftRide.Gateway}"
       Jwt__Audience: "${SWIFTRIDE_JWT_AUDIENCE:-SwiftRide.Client}"
       ConnectionStrings__PaymentDbConnection: "Host=postgres;Port=5432;Database=PayDB;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}"
-      ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
+      Kafka__BootstrapServers: "kafka:29092"
       Downstream__TripService: "http://trip-service:8080"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:
@@ -165,7 +177,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
+      kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -200,5 +212,5 @@ volumes:
   sqlserver_data:
   mongodb_data:
   postgres_data:
-  rabbitmq_data:
+  kafka_data:
   redis_data:

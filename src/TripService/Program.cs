@@ -1,3 +1,5 @@
+using SwiftRide.Contracts.Events;
+using SwiftRide.Messaging;
 using SwiftRide.Security;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -16,11 +18,11 @@ using TripService.Infrastructure.Repositories;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSwiftRideAuthentication(builder.Configuration, signalR: true);
 
-foreach (var requiredConnection in new[] { "TripDbConnection", "RabbitMq" })
-{
-    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(requiredConnection)))
-        throw new InvalidOperationException($"Missing configuration: ConnectionStrings:{requiredConnection}");
-}
+var connectionString = builder.Configuration.GetConnectionString("TripDbConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("Missing configuration: ConnectionStrings:TripDbConnection");
+
+var kafkaBootstrapServers = builder.Configuration.GetBootstrapServers();
 
 // OpenTelemetry Observability
 builder.Services.AddOpenTelemetry()
@@ -70,9 +72,6 @@ if (!string.IsNullOrEmpty(redisConn))
 }
 
 // Register SQL Server TripDbContext
-var connectionString = builder.Configuration.GetConnectionString("TripDbConnection")
-    ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:TripDbConnection");
-
 builder.Services.AddDbContext<TripDbContext>(options =>
     options.UseSqlServer(connectionString));
 
@@ -96,43 +95,77 @@ builder.Services.AddHttpClient<ITripQuoteClient, TripQuoteClient>(client =>
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<TripAppService>();
 builder.Services.AddScoped<ITripAppService>(sp => sp.GetRequiredService<TripAppService>());
-builder.Services.AddScoped<PaymentSettledConsumer>();
-builder.Services.AddScoped<PaymentFailedConsumer>();
 
-// Register MassTransit with RabbitMQ
-builder.Services.AddMassTransit(x =>
+builder.Services.AddSwiftRideKafka(rider =>
 {
-    x.AddConsumer<MatchingFailedConsumer>();
-    x.AddConsumer<TripOfferProposedConsumer>();
-    x.AddConsumer<PaymentSettledConsumer>();
-    x.AddConsumer<PaymentFailedConsumer>();
-    x.AddConsumer<TripOfferDispatchedConsumer>();
-    x.AddConsumer<TripOfferExpiredConsumer>();
-    x.AddConsumer<DriverLocationUpdatedConsumer>();
-    x.AddConsumer<PaymentSettledSignalRConsumer>();
-    x.AddConsumer<TripAcceptedSignalRConsumer>();
-    x.AddConsumer<TripCancelledSignalRConsumer>();
-    x.AddConsumer<TripStatusChangedSignalRConsumer>();
+    rider.AddConsumer<MatchingFailedConsumer>();
+    rider.AddConsumer<TripOfferProposedConsumer>();
+    rider.AddConsumer<PaymentSettledConsumer>();
+    rider.AddConsumer<PaymentFailedConsumer>();
+    rider.AddConsumer<TripOfferDispatchedConsumer>();
+    rider.AddConsumer<TripOfferExpiredConsumer>();
+    rider.AddConsumer<DriverLocationUpdatedConsumer>();
+    rider.AddConsumer<PaymentSettledSignalRConsumer>();
+    rider.AddConsumer<TripAcceptedSignalRConsumer>();
+    rider.AddConsumer<TripCancelledSignalRConsumer>();
+    rider.AddConsumer<TripStatusChangedSignalRConsumer>();
 
-    x.UsingRabbitMq((context, cfg) =>
+    rider.AddKafkaProducer<TripRequestedEvent>(KafkaTopics.TripRequested);
+    rider.AddKafkaProducer<TripAcceptedEvent>(KafkaTopics.TripAccepted);
+    rider.AddKafkaProducer<TripOfferDispatchedEvent>(KafkaTopics.TripOfferDispatched);
+    rider.AddKafkaProducer<TripOfferExpiredEvent>(KafkaTopics.TripOfferExpired);
+    rider.AddKafkaProducer<MatchingAttemptClosedEvent>(KafkaTopics.MatchingAttemptClosed);
+    rider.AddKafkaProducer<DriverRejectedOfferEvent>(KafkaTopics.DriverRejectedOffer);
+    rider.AddKafkaProducer<RetryMatchingCommand>(KafkaTopics.MatchingRetry);
+    rider.AddKafkaProducer<TripDroppedOffEvent>(KafkaTopics.TripDroppedOff);
+    rider.AddKafkaProducer<TripCancelledEvent>(KafkaTopics.TripCancelled);
+    rider.AddKafkaProducer<TripCompletedEvent>(KafkaTopics.TripCompleted);
+    rider.AddKafkaProducer<TripStatusChangedEvent>(KafkaTopics.TripStatusChanged);
+
+    rider.UsingKafka((context, kafka) =>
     {
-        var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
-            ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
-        cfg.Host(new Uri(rabbitMqConnection));
-        cfg.UseMessageRetry(retry =>
-        {
-            retry.Handle<DbUpdateConcurrencyException>();
-            retry.Immediate(3);
-        });
-        cfg.ConfigureEndpoints(context);
+        kafka.Host(kafkaBootstrapServers);
+
+        const string tripGroup = "swiftride-trip";
+        const string signalRGroup = "swiftride-trip-signalr";
+
+        kafka.AddKafkaConsumerEndpoint<MatchingFailedEvent, MatchingFailedConsumer>(
+            context, KafkaTopics.MatchingFailed, tripGroup, RetryTripConcurrency);
+        kafka.AddKafkaConsumerEndpoint<TripOfferProposedEvent, TripOfferProposedConsumer>(
+            context, KafkaTopics.TripOfferProposed, tripGroup, RetryTripConcurrency);
+        kafka.AddKafkaConsumerEndpoint<PaymentSettledEvent, PaymentSettledConsumer>(
+            context, KafkaTopics.PaymentSettled, tripGroup, RetryTripConcurrency);
+        kafka.AddKafkaConsumerEndpoint<PaymentFailedEvent, PaymentFailedConsumer>(
+            context, KafkaTopics.PaymentFailed, tripGroup, RetryTripConcurrency);
+        kafka.AddKafkaConsumerEndpoint<TripOfferDispatchedEvent, TripOfferDispatchedConsumer>(
+            context, KafkaTopics.TripOfferDispatched, signalRGroup);
+        kafka.AddKafkaConsumerEndpoint<TripOfferExpiredEvent, TripOfferExpiredConsumer>(
+            context, KafkaTopics.TripOfferExpired, signalRGroup);
+        kafka.AddKafkaConsumerEndpoint<DriverLocationUpdatedEvent, DriverLocationUpdatedConsumer>(
+            context, KafkaTopics.DriverLocationUpdated, signalRGroup);
+        kafka.AddKafkaConsumerEndpoint<PaymentSettledEvent, PaymentSettledSignalRConsumer>(
+            context, KafkaTopics.PaymentSettled, signalRGroup);
+        kafka.AddKafkaConsumerEndpoint<TripAcceptedEvent, TripAcceptedSignalRConsumer>(
+            context, KafkaTopics.TripAccepted, signalRGroup);
+        kafka.AddKafkaConsumerEndpoint<TripCancelledEvent, TripCancelledSignalRConsumer>(
+            context, KafkaTopics.TripCancelled, signalRGroup);
+        kafka.AddKafkaConsumerEndpoint<TripStatusChangedEvent, TripStatusChangedSignalRConsumer>(
+            context, KafkaTopics.TripStatusChanged, signalRGroup);
     });
 });
+
+static void RetryTripConcurrency(IRetryConfigurator retry)
+{
+    retry.Handle<DbUpdateConcurrencyException>();
+    retry.Immediate(3);
+}
 
 // Register Outbox publisher background service
 builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHostedService<MatchingDeadlineService>();
 
 var app = builder.Build();
+await KafkaMessaging.EnsureTopicsAsync(kafkaBootstrapServers);
 
 // Khởi tạo database và thêm dữ liệu mẫu
 using (var scope = app.Services.CreateScope())

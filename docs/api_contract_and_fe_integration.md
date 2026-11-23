@@ -491,7 +491,7 @@ flowchart TD
 | `DriverAccepted` | Card tài xế: Tên, Biển số, Loại xe | Màn hình bản đồ: _"Đang tới điểm đón"_ | Tài xế bấm **[Bắt đầu đi đón]** |
 | `EnRoute` | Xe tài xế di chuyển trên bản đồ tới điểm đón | Điều hướng GPS tới điểm đón | Tài xế bấm **[Đã đón khách]** |
 | `PickedUp` | Bản đồ lộ trình di chuyển về điểm đích | Điều hướng GPS đưa khách về điểm trả | Tài xế bấm **[Đã trả khách]** |
-| `DroppedOff` | Màn hình khóa: _"Đang tự động quyết toán cước..."_ | Màn hình: _"Đang chờ kết toán..."_ | Hệ thống tự động trừ tiền qua RabbitMQ Outbox |
+| `DroppedOff` | Màn hình khóa: _"Đang tự động quyết toán cước..."_ | Màn hình: _"Đang chờ kết toán..."_ | Hệ thống tự động trừ tiền qua Kafka Outbox |
 | `PaymentPending` | Thông báo: _"Thanh toán tạm gián đoạn, vui lòng thử lại"_ | Thông báo: _"Chờ khách xác nhận lại thanh toán"_ | Khách bấm **[Thanh toán lại]** (`POST /api/payments/process`) |
 | `Paid` | Thông báo: _"Đã thanh toán thành công, đang đóng chuyến"_ | Thông báo: _"Đã cộng doanh thu vào ví"_ | Tự động chuyển tiếp sang `Completed` |
 | `Completed` | Màn hình Hóa đơn chi tiết & Cảm ơn | Màn hình Doanh thu cuốc xe (+80%) | Nút **[Về trang chủ]** |

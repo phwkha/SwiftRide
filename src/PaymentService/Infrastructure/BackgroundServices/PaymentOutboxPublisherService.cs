@@ -1,25 +1,16 @@
-using System.Text.Json;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using PaymentService.Domain.Entities;
 using PaymentService.Infrastructure.Data;
 using SwiftRide.Contracts.Events;
+using SwiftRide.Messaging;
 
 namespace PaymentService.Infrastructure.BackgroundServices;
 
 /// <summary>
-/// Background service poll outbox_messages chua xu ly va publish len RabbitMQ.
-/// Event duoc deserialize ve dung record trong SwiftRide.Contracts.Events de MassTransit
-/// dinh tuyen toi consumer cua TripService.
+/// Publishes pending payment outbox messages to Kafka.
 /// </summary>
 public class PaymentOutboxPublisherService : BackgroundService
 {
-    private static readonly Dictionary<string, Type> EventTypes = new()
-    {
-        [nameof(PaymentSettledEvent)] = typeof(PaymentSettledEvent),
-        [nameof(PaymentFailedEvent)] = typeof(PaymentFailedEvent),
-        [nameof(PaymentRefundedEvent)] = typeof(PaymentRefundedEvent),
-    };
-
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PaymentOutboxPublisherService> _logger;
     private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(3);
@@ -58,7 +49,6 @@ public class PaymentOutboxPublisherService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
 
         var messages = await dbContext.OutboxMessages
             .Where(m => m.ProcessedAt == null)
@@ -74,14 +64,7 @@ public class PaymentOutboxPublisherService : BackgroundService
         {
             try
             {
-                if (!EventTypes.TryGetValue(message.EventType, out var eventType))
-                    throw new InvalidOperationException($"Unknown outbox event type '{message.EventType}'.");
-
-                var @event = JsonSerializer.Deserialize(message.Payload, eventType)!;
-
-                await publishEndpoint.Publish(@event, eventType,
-                    context => context.MessageId = message.Id,
-                    stoppingToken);
+                await PublishMessageAsync(scope.ServiceProvider, message, stoppingToken);
 
                 message.ProcessedAt = DateTimeOffset.UtcNow;
                 message.Error = null;
@@ -95,5 +78,19 @@ public class PaymentOutboxPublisherService : BackgroundService
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
+    }
+
+    private static Task PublishMessageAsync(IServiceProvider services, OutboxMessage message, CancellationToken cancellationToken)
+    {
+        Task Produce<TEvent>(Func<TEvent, Guid> getTripId) where TEvent : class
+            => services.PublishOutboxEvent(message.Payload, null, getTripId, message.Id, cancellationToken);
+
+        return message.EventType switch
+        {
+            nameof(PaymentSettledEvent) => Produce<PaymentSettledEvent>(e => e.TripId),
+            nameof(PaymentFailedEvent) => Produce<PaymentFailedEvent>(e => e.TripId),
+            nameof(PaymentRefundedEvent) => Produce<PaymentRefundedEvent>(e => e.TripId),
+            _ => throw new InvalidOperationException($"Unknown outbox event type '{message.EventType}'.")
+        };
     }
 }

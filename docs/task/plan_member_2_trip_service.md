@@ -38,7 +38,7 @@ src/TripService/
 │   │   └── Configurations/                # [CẬP NHẬT] TripConfiguration.cs
 │   ├── Repositories/TripRepository.cs     # [TẠO MỚI] Triển khai ITripReader & ITripWriter
 │   └── BackgroundServices/
-│       └── OutboxPublisherService.cs      # [CẬP NHẬT] Publish đúng kiểu Event sang MassTransit
+│       └── OutboxPublisherService.cs      # [CẬP NHẬT] Phát event theo kiểu dữ liệu sang Kafka
 └── Api/
     └── TripEndpoints.cs                   # [TẠO MỚI] 10 REST Endpoints chuẩn ApiResponse<T>
 ```
@@ -106,7 +106,7 @@ src/TripService/
 
 ### Ngày 6 – Ngày 8: Hoàn Thiện Consumers & `OutboxPublisherService`
 1. **Cập nhật `OutboxPublisherService.cs`:**
-   - Dựa vào `message.EventType`, deserialize `message.Payload` về đúng kiểu record trong `SwiftRide.Contracts.Events` (ví dụ `TripRequestedEvent`, `TripDroppedOffEvent`...) rồi gọi `await publishEndpoint.Publish(typedEvent, stoppingToken)` để MassTransit gửi đúng queue cho `MatchingService` và `PaymentService`.
+   - Dựa vào `message.EventType`, deserialize `message.Payload` về đúng kiểu record trong `SwiftRide.Contracts.Events` (ví dụ `TripRequestedEvent`, `TripDroppedOffEvent`...) rồi dùng `ITopicProducer` để gửi tới topic tương ứng với key là `TripId`. Chỉ đánh dấu bản ghi đã xử lý sau khi Kafka xác nhận.
 2. **Viết 3 Consumers trong `src/TripService/Application/Consumers/`:**
    - `PaymentSettledConsumer` (SD 08): Khi nhận `PaymentSettledEvent`, chuyển trạng thái `DroppedOff` (hoặc `PaymentPending`) $\to$ `Paid` (lưu `TripStatusHistories`) $\to$ `Completed` (`CompletedAt = UtcNow`, lưu `TripStatusHistories` và ghi `TripCompletedEvent` vào Outbox).
    - `PaymentFailedConsumer` (SD 13): Khi nhận `PaymentFailedEvent`, chuyển `DroppedOff` $\to$ `PaymentPending`.
@@ -122,7 +122,7 @@ src/TripService/
   5. Dùng `Moq` mock `ITripWriter` kiểm tra `ConfirmQuoteAsync` có tạo bản ghi `OutboxMessage` chứa `TripRequestedEvent` hay không.
 
 ## 3. Cách Tự Test Độc Lập 100% (Không Cần Chờ Matching Hay Payment Service)
-1. Chạy `docker compose up -d sqlserver rabbitmq` và `dotnet run --project src/TripService`.
+1. Chạy `docker compose up -d --wait sqlserver kafka redis`. Đặt `Kafka__BootstrapServers=localhost:9092` khi chạy `dotnet run --project src/TripService`.
 2. Mở trình duyệt hoặc dùng `src/TripService/TripService.http` gọi lần lượt:
    - `POST http://localhost:5105/api/trips` $\to$ `POST /confirm-quote` $\to$ `PUT /accept` $\to$ `PUT /start-route` $\to$ `PUT /pick-up` $\to$ `PUT /drop-off`.
 3. Kiểm tra bảng `OutboxMessages` trong SQL Server thấy các dòng `TripRequestedEvent`, `TripDroppedOffEvent` đã có `ProcessedAt != null`.

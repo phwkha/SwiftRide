@@ -1,13 +1,14 @@
 using System.Text.Json;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using SwiftRide.Contracts.Events;
+using SwiftRide.Messaging;
+using TripService.Domain.Entities;
 using TripService.Infrastructure.Data;
 
 namespace TripService.Infrastructure.BackgroundServices;
 
 /// <summary>
-/// Background service poll OutboxMessages chua xu ly va publish len RabbitMQ.
+/// Background service poll OutboxMessages chua xu ly va publish len Kafka.
 /// Dam bao Transactional Outbox pattern: du lieu va event duoc ghi cung transaction,
 /// worker sau do publish event ra broker.
 /// </summary>
@@ -55,7 +56,6 @@ public class OutboxPublisherService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<TripDbContext>();
-        var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
 
         var messages = await dbContext.OutboxMessages
             .Where(m => m.ProcessedAt == null)
@@ -71,26 +71,9 @@ public class OutboxPublisherService : BackgroundService
         {
             try
             {
-                var (payload, payloadType) = DeserializeEvent(message.EventType, message.Payload);
-
-                await publishEndpoint.Publish(
-                    payload,
-                    payloadType,
-                    context =>
-                    {
-                        context.MessageId = message.Id;
-                        context.SetRoutingKey(message.EventType);
-                    },
-                    stoppingToken);
-
+                await PublishMessageAsync(scope.ServiceProvider, message, stoppingToken);
                 message.ProcessedAt = DateTimeOffset.UtcNow;
                 message.Error = null;
-                if (payload is TripRequestedEvent requested)
-                    _logger.LogInformation("Published matching request for trip {TripId} from outbox {MessageId} after {DelayMs} ms.",
-                        requested.TripId, message.Id, (message.ProcessedAt.Value - message.CreatedAt).TotalMilliseconds);
-                if (payload is RetryMatchingCommand retry)
-                    _logger.LogInformation("Published matching retry {Attempt} for trip {TripId} from outbox {MessageId}.",
-                        retry.Attempt, retry.TripId, message.Id);
                 _logger.LogDebug("Published outbox message {Id} of type {Type}.", message.Id, message.EventType);
             }
             catch (Exception ex)
@@ -103,30 +86,52 @@ public class OutboxPublisherService : BackgroundService
         await dbContext.SaveChangesAsync(stoppingToken);
     }
 
-    private static (object Payload, Type PayloadType) DeserializeEvent(
-        string eventType,
-        string payload)
+    private async Task PublishMessageAsync(IServiceProvider services, OutboxMessage message, CancellationToken cancellationToken)
     {
-        var type = eventType switch
+        Task<TEvent> Produce<TEvent>(Func<TEvent, Guid> getTripId) where TEvent : class
+            => services.PublishOutboxEvent(message.Payload, JsonOptions, getTripId, message.Id, cancellationToken);
+
+        switch (message.EventType)
         {
-            nameof(TripRequestedEvent) => typeof(TripRequestedEvent),
-            nameof(TripAcceptedEvent) => typeof(TripAcceptedEvent),
-            nameof(TripOfferDispatchedEvent) => typeof(TripOfferDispatchedEvent),
-            nameof(TripOfferExpiredEvent) => typeof(TripOfferExpiredEvent),
-            nameof(MatchingAttemptClosedEvent) => typeof(MatchingAttemptClosedEvent),
-            nameof(DriverRejectedOfferEvent) => typeof(DriverRejectedOfferEvent),
-            nameof(RetryMatchingCommand) => typeof(RetryMatchingCommand),
-            nameof(TripDroppedOffEvent) => typeof(TripDroppedOffEvent),
-            nameof(TripCancelledEvent) => typeof(TripCancelledEvent),
-            nameof(TripCompletedEvent) => typeof(TripCompletedEvent),
-            nameof(TripStatusChangedEvent) => typeof(TripStatusChangedEvent),
-            _ => throw new InvalidOperationException(
-                $"Unsupported outbox event type '{eventType}'.")
-        };
-
-        var value = JsonSerializer.Deserialize(payload, type, JsonOptions)
-            ?? throw new JsonException($"Outbox payload for '{eventType}' was null.");
-
-        return (value, type);
+            case nameof(TripRequestedEvent):
+                var requested = await Produce<TripRequestedEvent>(e => e.TripId);
+                _logger.LogInformation("Published matching request for trip {TripId} from outbox {MessageId} after {DelayMs} ms.",
+                    requested.TripId, message.Id, (DateTimeOffset.UtcNow - message.CreatedAt).TotalMilliseconds);
+                break;
+            case nameof(RetryMatchingCommand):
+                var retry = await Produce<RetryMatchingCommand>(e => e.TripId);
+                _logger.LogInformation("Published matching retry {Attempt} for trip {TripId} from outbox {MessageId}.",
+                    retry.Attempt, retry.TripId, message.Id);
+                break;
+            case nameof(TripAcceptedEvent):
+                await Produce<TripAcceptedEvent>(e => e.TripId);
+                break;
+            case nameof(TripOfferDispatchedEvent):
+                await Produce<TripOfferDispatchedEvent>(e => e.TripId);
+                break;
+            case nameof(TripOfferExpiredEvent):
+                await Produce<TripOfferExpiredEvent>(e => e.TripId);
+                break;
+            case nameof(MatchingAttemptClosedEvent):
+                await Produce<MatchingAttemptClosedEvent>(e => e.TripId);
+                break;
+            case nameof(DriverRejectedOfferEvent):
+                await Produce<DriverRejectedOfferEvent>(e => e.TripId);
+                break;
+            case nameof(TripDroppedOffEvent):
+                await Produce<TripDroppedOffEvent>(e => e.TripId);
+                break;
+            case nameof(TripCancelledEvent):
+                await Produce<TripCancelledEvent>(e => e.TripId);
+                break;
+            case nameof(TripCompletedEvent):
+                await Produce<TripCompletedEvent>(e => e.TripId);
+                break;
+            case nameof(TripStatusChangedEvent):
+                await Produce<TripStatusChangedEvent>(e => e.TripId);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported outbox event type '{message.EventType}'.");
+        }
     }
 }

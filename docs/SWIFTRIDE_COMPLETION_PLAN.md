@@ -23,9 +23,9 @@
 - [x] Worker xử lý offer hết hạn dù Driver đã ngắt kết nối. Backend phát `TripOfferExpired`, giải phóng reservation và thử tài xế khác, tối đa 4 lượt. Chuyến chuyển `Failed` khi cạn lượt hoặc hết tài xế phù hợp.
 - [x] Nghiệm thu nhận hợp lệ, sai tài xế, nhận quá hạn, hết hạn tự nhiên, từ chối rồi ghép lại, hết lượt và hủy khi đang có offer. Kiểm tra event lặp sau khi offer đóng và sau khi chuyến hoàn tất.
 
-### Kết quả nghiệm thu local ngày 23/11/2026
+### Kết quả nghiệm thu local trước khi chuyển sang Kafka, ngày 23/11/2026
 
-`dotnet test SwiftRide.slnx` đạt 117/117. Kiểm tra tích hợp qua Gateway và SignalR chạy với SQL Server, MongoDB, PostgreSQL, RabbitMQ và Redis local.
+`dotnet test SwiftRide.slnx` đạt 117/117. Kiểm tra tích hợp qua Gateway và SignalR chạy với SQL Server, MongoDB, PostgreSQL, broker của bản nghiệm thu và Redis local.
 
 | Ca kiểm tra | Trip ID | Kết quả |
 |---|---|---|
@@ -43,16 +43,16 @@ TripService bổ sung cột cho TripDB hiện có khi khởi động. Các chuy�
 ## 3. Tích hợp FE và nghiệm thu bản triển khai (§3.1 và §4)
 
 - [ ] Tích hợp hai ứng dụng Rider/Driver với Gateway và Hub. Nếu FE ở repo riêng, ghi commit hoặc phiên bản FE dùng để nghiệm thu. FE dùng API snapshot sau reconnect và hiển thị các trạng thái hủy, thất bại và `PaymentPending`.
-- [ ] Triển khai đồng bộ Gateway, TripService, MatchingService và PaymentService. Ghi commit, URL kiểm tra và ngày triển khai vào báo cáo. Chạy kiểm tra trên SQL Server, MongoDB, PostgreSQL, RabbitMQ và Redis của môi trường demo.
+- [ ] Triển khai đồng bộ Gateway, TripService, MatchingService và PaymentService. Ghi commit, URL kiểm tra và ngày triển khai vào báo cáo. Chạy kiểm tra trên SQL Server, MongoDB, PostgreSQL, Kafka và Redis của môi trường demo.
 - [ ] Demo chính từ hai giao diện. Rider đăng nhập, chọn tuyến, chốt giá và đặt xe. Driver bật nhận chuyến, nhận offer, đến đón, đón khách và trả khách. Xác nhận cả hai giao diện thấy `Completed`, số dư và bút toán Wallet khớp giá đã chốt.
 - [ ] Chạy các nhánh nghiệm thu gồm Rider hủy, Driver từ chối hoặc để hết hạn offer, thanh toán lỗi rồi thử lại, gửi lại cùng yêu cầu thanh toán, hoàn tiền và SignalR kết nối lại sau khi JWT hết hạn. Lưu `tripId`, mã HTTP và trạng thái cuối cho từng ca trong báo cáo. [Hướng dẫn tích hợp FE](FE_INTEGRATION_GUIDE.md) · [Báo cáo kiểm tra API](FE_API_VERIFICATION_2026-11-16.md)
 
 ## 4. Hoàn thiện yêu cầu chất lượng (§9)
 
 - [ ] **Saga và bồi thường.** Chọn một tình huống cụ thể cần hoàn tiền sau khi đã ghi nhận thanh toán. Triển khai luồng tự động đảo bút toán, ghi trạng thái kết quả và bảo đảm tín hiệu lỗi gửi lại chỉ dẫn đến một lần bồi thường. API refund hiện có là căn cứ để tái sử dụng nghiệp vụ đảo sổ. [PaymentAppService.cs](../src/PaymentService/Application/Services/PaymentAppService.cs)
-- [ ] **Nhất quán và giao nhận trùng.** Kiểm thử thanh toán và refund đồng thời trên PostgreSQL thật. Đối chiếu số dư cuối với ledger. Kiểm tra consumer khi nhận lại message và khi worker outbox khởi động lại. Xác nhận lỗi tạm thời được retry có giới hạn và lỗi sau khi hết lượt vào hàng đợi lỗi/DLQ theo cấu hình đã công bố.
+- [ ] **Nhất quán và giao nhận trùng.** Kiểm thử thanh toán và refund đồng thời trên PostgreSQL thật. Đối chiếu số dư cuối với ledger. Kiểm tra consumer khi nhận lại message và khi worker outbox khởi động lại. Xác nhận lỗi tạm thời được retry có giới hạn và lỗi sau khi hết lượt vào topic lỗi Kafka theo cấu hình đã công bố.
 - [ ] **Xác thực và phân quyền.** Để đáp ứng OAuth 2.0/OpenID Connect trong §9.3, tích hợp nhà cung cấp danh tính thay cho cơ chế cấp JWT demo. Giữ kiểm tra quyền trên tài nguyên tại service. Nghiệm thu login, token hết hạn và truy cập tài nguyên sai quyền.
-- [ ] **Quan sát hệ thống.** Cấu hình nơi nhận dữ liệu OpenTelemetry và lưu bằng chứng truy vết một chuyến từ Gateway qua Trip, RabbitMQ, Matching và Payment. Có số liệu cho tỉ lệ đặt xe thành công, thời gian matching, độ trễ API, tỉ lệ lỗi thanh toán và độ dài hàng đợi. [Cấu hình và chỉ số hiện có](security-and-business-metrics.md)
+- [ ] **Quan sát hệ thống.** Cấu hình nơi nhận dữ liệu OpenTelemetry và lưu bằng chứng truy vết một chuyến từ Gateway qua Trip, Kafka, Matching và Payment. Có số liệu cho tỉ lệ đặt xe thành công, thời gian matching, độ trễ API, tỉ lệ lỗi thanh toán và độ trễ consumer group Kafka. [Cấu hình và chỉ số hiện có](security-and-business-metrics.md)
 
 ## Phạm vi và mốc bàn giao
 

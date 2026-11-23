@@ -11,7 +11,12 @@ namespace MatchingService.Tests;
 public sealed class DriverMatchingAppServiceTests
 {
     private readonly Mock<IDriverRepository> _driverRepositoryMock = new();
-    private readonly Mock<IPublishEndpoint> _publishEndpointMock = new();
+    private readonly Mock<ITopicProducer<string, DriverLocationUpdatedEvent>> _locationProducer = new();
+    private readonly Mock<ITopicProducer<string, MatchingFailedEvent>> _matchingFailedProducer = new();
+    private readonly Mock<ITopicProducer<string, TripOfferProposedEvent>> _tripOfferProducer = new();
+
+    private DriverMatchingAppService CreateService()
+        => new(_driverRepositoryMock.Object, _locationProducer.Object, _matchingFailedProducer.Object, _tripOfferProducer.Object);
 
     [Fact]
     public async Task MatchTripAsync_WhenNoDriver_RecordsFailureAndDuration()
@@ -35,7 +40,7 @@ public sealed class DriverMatchingAppServiceTests
             if (instrument.Name == "swiftride.matching.duration") durations.Add(value);
         });
         listener.Start();
-        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        var service = CreateService();
 
         await service.MatchTripAsync(Guid.NewGuid(), 10m, 106m, "Bike", [], 1, DateTimeOffset.UtcNow.AddMinutes(1));
 
@@ -50,14 +55,14 @@ public sealed class DriverMatchingAppServiceTests
         var driver = Guid.NewGuid();
         _driverRepositoryMock.Setup(r => r.GetReservedDriverAsync(tripId.ToString(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Driver { DriverId = driver.ToString(), ReservedAttempt = 1 });
-        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        var service = CreateService();
 
         await service.MatchTripAsync(tripId, 10m, 106m, "Bike", [], 1, DateTimeOffset.UtcNow.AddMinutes(1));
 
         _driverRepositoryMock.Verify(r => r.ReserveNearestDriverAsync(It.IsAny<decimal>(), It.IsAny<decimal>(),
             It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<int>(),
             It.IsAny<CancellationToken>()), Times.Never);
-        _publishEndpointMock.Verify(p => p.Publish(new TripOfferProposedEvent(tripId, driver, 1),
+        _tripOfferProducer.Verify(p => p.Produce(tripId.ToString("D"), new TripOfferProposedEvent(tripId, driver, 1),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -77,10 +82,10 @@ public sealed class DriverMatchingAppServiceTests
             .Callback(() => Assert.True(released))
             .ReturnsAsync(new Driver { DriverId = next.ToString(), ReservedAttempt = 2 });
 
-        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        var service = CreateService();
         await service.MatchTripAsync(tripId, 10m, 106m, "Bike", [rejected], 2, DateTimeOffset.UtcNow.AddMinutes(1));
 
-        _publishEndpointMock.Verify(p => p.Publish(new TripOfferProposedEvent(tripId, next, 2),
+        _tripOfferProducer.Verify(p => p.Produce(tripId.ToString("D"), new TripOfferProposedEvent(tripId, next, 2),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -92,7 +97,7 @@ public sealed class DriverMatchingAppServiceTests
             .Setup(r => r.UpdateAvailabilityAsync(driverId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        var service = CreateService();
 
         var result = await service.UpdateAvailabilityAsync(driverId, true);
 
@@ -111,7 +116,7 @@ public sealed class DriverMatchingAppServiceTests
             .Setup(r => r.ExistsAsync(driverId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        var service = CreateService();
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.UpdateAvailabilityAsync(driverId, true));
@@ -131,10 +136,11 @@ public sealed class DriverMatchingAppServiceTests
                 It.IsAny<IEnumerable<string>>(), tripId.ToString(), 1, ct))
             .ReturnsAsync(new Driver { DriverId = Guid.NewGuid().ToString(), ReservedAttempt = 1 });
 
-        var service = new DriverMatchingAppService(_driverRepositoryMock.Object, _publishEndpointMock.Object);
+        var service = CreateService();
         await service.MatchTripAsync(tripId, 10m, 106m, "Bike", [], 1, DateTimeOffset.UtcNow.AddMinutes(1), ct);
 
         _driverRepositoryMock.Verify(r => r.ReleaseReservationsThroughAsync(tripId.ToString(), 1, ct), Times.Once);
-        Assert.Empty(_publishEndpointMock.Invocations);
+        Assert.Empty(_tripOfferProducer.Invocations);
+        Assert.Empty(_matchingFailedProducer.Invocations);
     }
 }

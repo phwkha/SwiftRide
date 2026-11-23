@@ -72,8 +72,8 @@ flowchart TD
 
 1. **Vị trí của SignalR Hub (`/hubs/trips`):**
    - `TripHub` được đặt bên trong **`Trip Service (:5105)`** (nơi nắm giữ máy trạng thái chuyến đi).
-   - **`API Gateway (YARP :5000)`** chỉ đảm nhận vai trò Reverse Proxy chuyển tiếp kết nối WebSocket từ `http://localhost:5000/hubs/trips` vào `http://localhost:5105/hubs/trips` (Gateway hoàn toàn stateless, không kết nối tới RabbitMQ).
-   - Khi `Trip Service` cập nhật trạng thái nội bộ hoặc nhận sự kiện tích hợp từ `Matching Service` / `Payment Service` qua RabbitMQ, `Trip Service` sử dụng `IHubContext<TripHub>` để đẩy thông báo realtime qua YARP tới ứng dụng Client.
+   - **`API Gateway (YARP :5000)`** chỉ đảm nhận vai trò Reverse Proxy chuyển tiếp kết nối WebSocket từ `http://localhost:5000/hubs/trips` vào `http://localhost:5105/hubs/trips` (Gateway hoàn toàn stateless, không kết nối tới Kafka).
+   - Khi `Trip Service` cập nhật trạng thái nội bộ hoặc nhận sự kiện tích hợp từ `Matching Service` / `Payment Service` qua Kafka, `Trip Service` sử dụng `IHubContext<TripHub>` để đẩy thông báo realtime qua YARP tới ứng dụng Client.
 2. **Cơ chế Xác thực tại Gateway (Mock Identity Store):**
    - Phục vụ phạm vi bài tập lớn mà không phát sinh microservice thứ 4 hay CSDL thứ 4, `API Gateway` tích hợp sẵn một `InMemoryIdentityStore` lưu tập tài khoản mẫu (`Rider`, `Driver`, `Admin`) và danh sách `RefreshToken` đang hoạt động để cấp phát, xác thực JWT Bearer theo chuẩn Mục 8 & Mục 9.3 của PDF.
 
@@ -170,7 +170,7 @@ sequenceDiagram
     participant Trip as Trip Service (:5105)
     participant SQL as SQL Server (TripDB)
     participant Worker as Outbox Publisher Worker
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
 
     Note over Rider: Sau khi xem báo giá hiển thị trên màn hình
     alt Trường hợp 1: Rider ĐỒNG Ý giá cước (Kích hoạt tìm tài xế)
@@ -214,7 +214,7 @@ sequenceDiagram
     participant Trip as Trip Service (:5105 + SignalR TripHub)
     participant SQL as SQL Server (TripDB)
     participant Worker as Outbox Publisher Worker
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     actor Rider as Rider App
 
     Driver->>GW: PUT /api/trips/{id}/accept (Alias: POST /trips/{id}/driver-accept)
@@ -257,7 +257,7 @@ sequenceDiagram
     participant Trip as Trip Service (:5105 + SignalR TripHub)
     participant SQL as SQL Server (TripDB)
     participant Worker as Outbox Publisher Worker
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     actor Rider as Rider App
 
     %% Mốc 1: Đang đến điểm đón
@@ -316,7 +316,7 @@ sequenceDiagram
     participant Trip as Trip Service (:5105 + SignalR TripHub)
     participant SQL as SQL Server (TripDB)
     participant Worker as Outbox Publisher Worker
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     participant Match as Matching Service (:5248)
     actor Peer as Bên còn lại (Driver / Rider)
 
@@ -354,7 +354,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     participant Trip as Trip Service (:5105 + SignalR TripHub)
     participant SQL as SQL Server (TripDB)
     participant Match as Matching Service (:5248)
@@ -430,7 +430,7 @@ sequenceDiagram
     participant GW as API Gateway (:5000)
     participant Match as Matching Service (:5248)
     participant Mongo as MongoDB (MatchDB)
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     participant Trip as Trip Service (:5105 + SignalR TripHub)
     actor Rider as Rider App
 
@@ -466,7 +466,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     participant Match as Matching Service (:5248)
     participant Mongo as MongoDB (MatchDB)
     participant Trip as Trip Service (:5105 + SignalR TripHub + TripDB)
@@ -522,7 +522,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     participant Pay as Payment Service (:5114)
     participant Postgres as PostgreSQL (PayDB)
     participant Gateway as Cổng Thanh Toán Đối Tác (Momo / VNPay / Stripe)
@@ -572,7 +572,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
     participant Pay as Payment Service (:5114)
     participant Gateway as Cổng Thanh Toán / Ví
     participant Postgres as PostgreSQL (PayDB)
@@ -616,7 +616,7 @@ sequenceDiagram
     participant Postgres as PostgreSQL (PayDB)
     participant Gateway as Cổng Thanh Toán Đối Tác (Momo/VNPay/Stripe)
     participant Worker as Outbox Publisher Worker
-    participant Bus as RabbitMQ Event Bus
+    participant Bus as Kafka Event Bus
 
     Admin->>GW: POST /api/payments/{transactionId}/refund (Alias: POST /payments/{id}/refund)<br/>{ reason: "Saga bù trừ do chuyến đi gặp sự cố bất khả kháng" }
     GW->>Pay: Forward Request

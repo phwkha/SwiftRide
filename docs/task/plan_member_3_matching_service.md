@@ -123,7 +123,7 @@ src/MatchingService/
    - Tìm tài xế theo `driver_id`, trả về `DriverLocationDto` (`latitude = Location.Coordinates.Latitude`, `longitude = Location.Coordinates.Longitude`, `bearing`, `speed`, `lastLocationUpdatedAt`).
 4. **`PUT /api/drivers/{id}/location` (SD 10):**
    - Cập nhật `Location = GeoJson.Point(GeoJson.Geographic(req.Longitude, req.Latitude))`, `Bearing = req.Bearing`, `Speed = req.Speed`, `LastLocationUpdatedAt = DateTime.UtcNow`.
-   - Nếu `req.ActiveTripId != null`, publish `DriverLocationUpdatedEvent` lên RabbitMQ.
+   - Nếu `req.ActiveTripId != null`, publish `DriverLocationUpdatedEvent` lên Kafka.
 5. **`PUT /api/drivers/{id}/availability` (SD 10):**
    - Cập nhật `IsAvailable = req.IsAvailable` cho tài xế.
 
@@ -156,8 +156,8 @@ src/MatchingService/
   2. `FareCalculator` ném `InvalidOperationException` khi một strategy trả về giá âm (chứng minh tuân thủ LSP - Mục 6.3 PDF).
 
 ## 3. Cách Tự Test Độc Lập 100% (Không Cần Chờ TripService)
-1. Chạy `docker compose up -d mongodb rabbitmq` và `dotnet run --project src/MatchingService`.
+1. Chạy `docker compose up -d --wait mongodb kafka redis`. Đặt `Kafka__BootstrapServers=localhost:9092` khi chạy `dotnet run --project src/MatchingService`.
 2. Mở `http://localhost:5248/openapi/v1.json` hoặc dùng `MatchingService.http` gọi:
    - `POST http://localhost:5248/api/matching/quote` với tọa độ Chợ Bến Thành `(10.776889, 106.700806)` $\to$ kiểm tra `surgeMultiplier` tự động nhận `1.3` và lưu vào `TripQuotes`.
    - `POST http://localhost:5248/api/matching/find-drivers` $\to$ kiểm tra trả về `Driver 1` và `Driver 2` theo thứ tự khoảng cách tăng dần.
-3. Mở RabbitMQ Management UI (`http://localhost:15672`) hoặc tạo 1 endpoint dev `POST /dev/simulate-trip-requested` để bắn thử `TripRequestedEvent` với `ExcludedDriverIds = ["22222222-2222-2222-2222-222222222222"]`, kiểm tra hệ thống tự động bỏ qua `Driver 1` và chọn `Driver 2`!
+3. Dùng Kafka Rider để gửi event thử hoặc tạo endpoint dev `POST /dev/simulate-trip-requested` để bắn thử `TripRequestedEvent` với `ExcludedDriverIds = ["22222222-2222-2222-2222-222222222222"]`, kiểm tra hệ thống tự động bỏ qua `Driver 1` và chọn `Driver 2`!

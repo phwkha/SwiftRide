@@ -41,21 +41,24 @@ Mục 01 tự đăng nhập, lấy `offerId` qua SignalR và kiểm tra báo gi�
 
 ### Cách A: Khởi chạy toàn bộ bằng Docker (Khuyến nghị - 1 lệnh duy nhất)
 
-Cách này sẽ tự động nạp biến môi trường từ `.env`, build 4 ứng dụng .NET và chạy 8 container trong cùng một mạng Docker:
+Compose nạp biến môi trường từ `.env` và build bốn ứng dụng .NET. Trip, Matching và Payment tạo các topic Kafka còn thiếu khi khởi động.
 
 ```bash
 # 1. Khởi chạy toàn bộ hệ thống
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 
-# 2. Kiểm tra trạng thái các container (phải đảm bảo 8/8 container running)
+# 2. Kiểm tra các dịch vụ đang chạy
 docker compose ps
 ```
 
-### Cách B: Chạy kết hợp Docker (Databases & RabbitMQ) + `dotnet run` (Dành cho Dev / Debug)
+### Cách B: Chạy kết hợp Docker (Databases & Kafka) + `dotnet run` (Dành cho Dev / Debug)
 
 ```bash
-# Bước 1: Khởi động 4 container hạ tầng (SQL Server, MongoDB, PostgreSQL, RabbitMQ)
-docker compose up -d sqlserver mongodb postgres rabbitmq
+# Bước 1: Khởi động hạ tầng và đợi Kafka sẵn sàng
+docker compose up -d --wait sqlserver mongodb postgres redis kafka
+
+# Đặt biến này trong từng terminal chạy Trip, Matching hoặc Payment
+export Kafka__BootstrapServers=localhost:9092
 
 # Bước 2: Chạy 4 microservices trên 4 terminal riêng biệt:
 # Terminal 1:
@@ -71,8 +74,19 @@ dotnet run --project src/PaymentService
 dotnet run --project src/ApiGateway
 ```
 
+Thiết lập kết nối cơ sở dữ liệu và biến xác thực theo [hướng dẫn cấu hình](security-and-business-metrics.md).
+
 > **Health Check nhanh:**  
 > Truy cập `http://localhost:5000/` trả về `{"service":"ApiGateway","status":"Running"}` là Gateway đã sẵn sàng đón nhận request.
+
+### Kiểm tra Kafka
+
+```bash
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --all-groups
+```
+
+Kiểm tra `LAG` của các group `swiftride-trip`, `swiftride-trip-signalr`, `swiftride-matching` và `swiftride-payment`. Khi consumer lỗi, đọc topic `swiftride.consumer-failures.v1` để xác định topic nguồn, group và lỗi.
 
 ---
 
@@ -134,12 +148,12 @@ flowchart TD
     S2 --> S3["3. Rider yêu cầu Báo giá (Quote)"]
     S3 --> S4["4. Rider tạo Chuyến đi (Draft/Requested)"]
     S4 --> S5["5. Rider chốt giá (Confirm Quote)"]
-    S5 -->|RabbitMQ Pub/Sub| S6["6. Driver nhận cuốc (Accept)"]
+    S5 -->|Kafka Pub/Sub| S6["6. Driver nhận cuốc (Accept)"]
     S6 --> S7["7. Driver di chuyển đón khách (Start Route)"]
     S7 --> S8["8. Driver đón khách thành công (Pick Up)"]
     S8 --> S9["9. Rider gọi Aggregation xem vị trí tài xế"]
     S9 --> S10["10. Driver trả khách (Drop Off)"]
-    S10 -->|RabbitMQ Pub/Sub| S11["11. Payment tự động trừ ví & cộng tài xế 80/20"]
+    S10 -->|Kafka Pub/Sub| S11["11. Payment tự động trừ ví & cộng tài xế 80/20"]
 ```
 
 ---
@@ -348,7 +362,7 @@ curl -s -X PUT http://localhost:5000/api/trips/$TRIP_ID/pick-up \
 ```
 
 #### API #17: Tài xế trả khách tại đích đến (`PUT /api/trips/{id}/drop-off`)
-*(Hoặc dùng alias `POST /trips/{id}/dropoff` - Tự động phát sinh thanh toán ví qua RabbitMQ)*
+*(Hoặc dùng alias `POST /trips/{id}/dropoff` - Tự động phát sinh thanh toán ví qua Kafka)*
 ```bash
 curl -s -X PUT http://localhost:5000/api/trips/$TRIP_ID/drop-off \
   -H "Authorization: Bearer $DRIVER_TOKEN" \

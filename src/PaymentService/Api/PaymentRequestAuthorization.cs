@@ -29,7 +29,7 @@ public sealed class PaymentRequestAuthorization(ITripSnapshotClient trips, IPaym
         var trip = await trips.GetAsync(request.TripId, authorization, ct);
         if (trip.RiderId != userId)
             throw Forbidden();
-        // REST is a manual retry only. RabbitMQ automatic settlement remains internal.
+        // REST is a manual retry only. Kafka automatic settlement remains internal.
         if (trip.Status != 5 || trip.DriverId is null || trip.DriverId == Guid.Empty || trip.ActualFare is null or <= 0)
             throw new PaymentException("PAYMENT_NOT_PENDING", 409,
                 "Chi thanh toan lai chuyen di dang PaymentPending voi gia da quyet toan.");

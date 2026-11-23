@@ -7,6 +7,7 @@ using MatchingService.Application.Services;
 using MatchingService.Domain.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using SwiftRide.Contracts.Events;
 
 namespace Security.Tests;
 
@@ -24,7 +25,11 @@ public class AvailabilityAuthorizationTests
         repo.Setup(r => r.UpdateAvailabilityAsync(TestApp.Driver.ToString(), true, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         await using var app = await TestApp.StartAsync(services =>
         {
-            services.AddSingleton(new DriverMatchingAppService(repo.Object, Mock.Of<IPublishEndpoint>()));
+            services.AddSingleton(new DriverMatchingAppService(
+                repo.Object,
+                Mock.Of<ITopicProducer<string, DriverLocationUpdatedEvent>>(),
+                Mock.Of<ITopicProducer<string, MatchingFailedEvent>>(),
+                Mock.Of<ITopicProducer<string, TripOfferProposedEvent>>()));
             services.AddTransient<PricingAppService>(_ => throw new InvalidOperationException("Unused pricing service"));
         }, app => app.MapMatchingEndpoints());
         using var client = role == "anonymous" ? app.GetTestClient() : TestApp.Client(app, own ? TestApp.Driver : TestApp.Other, role);

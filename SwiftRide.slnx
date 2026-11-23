@@ -4,6 +4,7 @@
     <Project Path="src/MatchingService/MatchingService.csproj" />
     <Project Path="src/PaymentService/PaymentService.csproj" />
     <Project Path="src/Shared.Contracts/Shared.Contracts.csproj" />
+    <Project Path="src/Shared.Messaging/Shared.Messaging.csproj" />
     <Project Path="src/Shared.Security/Shared.Security.csproj" />
     <Project Path="src/TripService/TripService.csproj" />
     <Project Path="tests/TripService.Tests/TripService.Tests.csproj" />

@@ -8,9 +8,11 @@ WORKDIR /src
 COPY ["src/Shared.Contracts/Shared.Contracts.csproj", "src/Shared.Contracts/"]
 COPY ["src/Shared.Security/Shared.Security.csproj", "src/Shared.Security/"]
 COPY ["src/TripService/TripService.csproj", "src/TripService/"]
+COPY ["src/Shared.Messaging/Shared.Messaging.csproj", "src/Shared.Messaging/"]
 RUN dotnet restore "src/TripService/TripService.csproj"
 COPY ["src/Shared.Contracts/", "src/Shared.Contracts/"]
 COPY ["src/Shared.Security/", "src/Shared.Security/"]
+COPY ["src/Shared.Messaging/", "src/Shared.Messaging/"]
 COPY ["src/TripService/", "src/TripService/"]
 WORKDIR "/src/src/TripService"
 RUN dotnet build "TripService.csproj" -c Release -o /app/build

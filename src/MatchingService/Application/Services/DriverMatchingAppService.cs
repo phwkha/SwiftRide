@@ -9,7 +9,9 @@ namespace MatchingService.Application.Services;
 
 public sealed class DriverMatchingAppService(
     IDriverRepository driverRepository,
-    IPublishEndpoint publishEndpoint,
+    ITopicProducer<string, DriverLocationUpdatedEvent> locationProducer,
+    ITopicProducer<string, MatchingFailedEvent> matchingFailedProducer,
+    ITopicProducer<string, TripOfferProposedEvent> tripOfferProducer,
     ILogger<DriverMatchingAppService>? logger = null)
 {
     public async Task<IReadOnlyList<NearbyDriverDto>> FindNearbyDriversAsync(FindNearbyDriversRequest request, CancellationToken cancellationToken = default)
@@ -95,7 +97,7 @@ public sealed class DriverMatchingAppService(
 
         if (request.ActiveTripId is Guid tripId)
         {
-            await publishEndpoint.Publish(new DriverLocationUpdatedEvent(
+            await locationProducer.Produce(tripId.ToString("D"), new DriverLocationUpdatedEvent(
                 tripId,
                 Guid.Parse(driverId),
                 request.Latitude,
@@ -166,7 +168,7 @@ public sealed class DriverMatchingAppService(
 
             if (driver is null)
             {
-                await publishEndpoint.Publish(new MatchingFailedEvent(
+                await matchingFailedProducer.Produce(tripKey, new MatchingFailedEvent(
                     tripId, "Không tìm thấy tài xế khả dụng quanh khu vực", attempt), cancellationToken);
                 return;
             }
@@ -182,7 +184,7 @@ public sealed class DriverMatchingAppService(
 
             // Republish the proposal on redelivery in case the previous delivery stopped after reserving.
             // The TripService row version allows a single committed offer for this attempt.
-            await publishEndpoint.Publish(
+            await tripOfferProducer.Produce(tripKey,
                 new TripOfferProposedEvent(tripId, Guid.Parse(driver.DriverId), attempt), cancellationToken);
             outcome = "success";
         }

@@ -68,7 +68,7 @@ flowchart TD
         Transactions -.-> PayOutbox
     end
 
-    EventBus[("RabbitMQ MassTransit Event Bus")]
+    EventBus[("Kafka Event Bus")]
     TripOutbox -->|Publish TripRequested / TripDroppedOff / TripCancelled| EventBus
     EventBus -->|Consume| MatchingService_Scope
     EventBus -->|Consume| PaymentService_Scope
@@ -204,7 +204,7 @@ Phục vụ Audit Trail lưu vết lịch sử mọi lần chuyển đổi trạ
 | `EventType` | `NVARCHAR(255)` | NOT NULL | Tên sự kiện: `TripRequestedEvent`, `TripAcceptedEvent`, `TripDroppedOffEvent`, `TripCancelledEvent`, `TripCompletedEvent` |
 | `Payload` | `NVARCHAR(MAX)` | NOT NULL | Nội dung Event serialize JSON |
 | `CreatedAt` | `DATETIMEOFFSET` | NOT NULL | Thời điểm phát sinh sự kiện trong transaction |
-| `ProcessedAt` | `DATETIMEOFFSET` | NULL, Index | Thời điểm Outbox Worker đã publish lên RabbitMQ |
+| `ProcessedAt` | `DATETIMEOFFSET` | NULL, Index | Thời điểm Outbox Worker đã publish lên Kafka |
 | `Error` | `NVARCHAR(MAX)` | NULL | Lỗi chi tiết nếu publish lên broker thất bại |
 
 ## 3. Chi Tiết CSDL Matching & Pricing Service (MongoDB - `MatchDB`)
@@ -451,7 +451,7 @@ $$\Rightarrow \sum \text{Debit } (65,000) = \sum \text{Credit } (52,000 + 13,000
 #### Bảng `idempotency_records` (Kiểm soát chống trùng lặp)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả & Ánh xạ Sơ đồ trình tự |
 | :--- | :--- | :--- | :--- |
-| `idempotency_key` | `VARCHAR(255)` | PK | Khóa định danh duy nhất (vd: `pay_trip_{tripId}` từ RabbitMQ hoặc Header `X-Idempotency-Key` ở SD 12, SD 13) |
+| `idempotency_key` | `VARCHAR(255)` | PK | Khóa định danh duy nhất (vd: `pay_trip_{tripId}` từ Kafka hoặc Header `X-Idempotency-Key` ở SD 12, SD 13) |
 | `request_hash` | `VARCHAR(255)` | NOT NULL | Hash nội dung request để phát hiện sai lệch payload |
 | `status` | `VARCHAR(50)` | NOT NULL | Trạng thái xử lý: `Processing`, `Success`, `Failed` |
 | `response_payload` | `TEXT` | NULL | Kết quả JSON lưu trữ để phản hồi tức thì khi có request retry gửi lại |
@@ -459,14 +459,14 @@ $$\Rightarrow \sum \text{Debit } (65,000) = \sum \text{Credit } (52,000 + 13,000
 | `expires_at` | `TIMESTAMPTZ` | NOT NULL, Index | Thời điểm hết hạn của khóa Idempotency |
 
 #### Bảng `outbox_messages` (Transactional Outbox trên PostgreSQL)
-Đảm bảo các sự kiện `PaymentSettledEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent` (SD 12, SD 13, SD 14) được ghi trong cùng transaction với sổ cái và bắn sang RabbitMQ một cách đáng tin cậy:
+Đảm bảo các sự kiện `PaymentSettledEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent` (SD 12, SD 13, SD 14) được ghi trong cùng transaction với sổ cái và bắn sang Kafka một cách đáng tin cậy:
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | `UUID` | PK | Mã thông điệp |
 | `event_type` | `VARCHAR(255)` | NOT NULL | Tên sự kiện: `PaymentSettledEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent` |
 | `payload` | `TEXT` | NOT NULL | Nội dung Event dạng JSON |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL | Thời điểm tạo trong transaction |
-| `processed_at` | `TIMESTAMPTZ` | NULL, Index | Thời điểm Outbox Worker gửi thành công lên RabbitMQ |
+| `processed_at` | `TIMESTAMPTZ` | NULL, Index | Thời điểm Outbox Worker gửi thành công lên Kafka |
 | `error` | `TEXT` | NULL | Lỗi chi tiết nếu broker gặp sự cố |
 
 ## 5. Ma Trận Ánh Xạ CSDL & 15 Sơ Đồ Trình Tự (Traceability Matrix)
@@ -498,4 +498,4 @@ Hạ tầng CSDL được đóng gói đồng bộ trong file `docker-compose.ym
 | **SQL Server** | `1433:1433` | `TripDB` | `User: sa`<br/>`Password: Password123!` | `Server=localhost,1433;Database=TripDB;User Id=sa;Password=Password123!;TrustServerCertificate=True;` |
 | **MongoDB** | `27017:27017` | `MatchDB` | *No Authentication (Local Dev)* | `mongodb://localhost:27017/MatchDB` |
 | **PostgreSQL** | `5432:5432` | `PayDB` | `User: postgres`<br/>`Password: postgrespassword` | `Host=localhost;Port=5432;Database=PayDB;Username=postgres;Password=postgrespassword;` |
-| **RabbitMQ** | `5672`, `15672` | `/` (vhost) | `User: guest`<br/>`Password: guest` | `amqp://guest:guest@localhost:5672/` |
+| **Kafka** | `9092` | `swiftride.*.v1` (topic) | PLAINTEXT local | `Kafka__BootstrapServers=localhost:9092` |

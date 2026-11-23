@@ -4379,7 +4379,7 @@
                     }
                   }
                 },
-                "description": "Sau khi trả khách, chờ thanh toán tự động qua RabbitMQ. Gọi GET chi tiết để xem Completed."
+                "description": "Sau khi trả khách, chờ thanh toán tự động qua Kafka. Gọi GET chi tiết để xem Completed."
               },
               "response": []
             },
@@ -4483,7 +4483,7 @@
                     }
                   }
                 },
-                "description": "Chỉ gọi khi cần thanh toán thủ công/PaymentPending. Trả khách đã tự thanh toán qua RabbitMQ thì không gọi lại. Key được giữ nguyên cho cùng trip_id; transaction_id được lưu khi thành công."
+                "description": "Chỉ gọi khi cần thanh toán thủ công/PaymentPending. Trả khách đã tự thanh toán qua Kafka thì không gọi lại. Key được giữ nguyên cho cùng trip_id; transaction_id được lưu khi thành công."
               },
               "response": [],
               "event": [
@@ -6064,7 +6064,7 @@
                       "  if(err) { pm.test('Settlement polling succeeded',()=>{throw err;});return; }",
                       "  const d=res.json().data;",
                       "  if(res.code===200 && d && d.status===7) {",
-                      "   pm.test('RabbitMQ settlement reaches Completed',()=>pm.expect(d.status).to.eql(7));return;",
+                      "   pm.test('Kafka settlement reaches Completed',()=>pm.expect(d.status).to.eql(7));return;",
                       "  }",
                       "  if(++attempt>=25) {pm.test('Completed within 25 seconds',()=>pm.expect(d && d.status).to.eql(7));return;}",
                       "  setTimeout(poll,1000);",

@@ -35,7 +35,7 @@ src/PaymentService/
 │   │   └── Configurations/
 │   │       └── TransactionConfiguration.cs# [CẬP NHẬT] Thêm Unique Filtered Index chống thu trùng
 │   └── BackgroundServices/
-│       └── PaymentOutboxPublisherService.cs # [TẠO MỚI] Quét outbox_messages bắn lên RabbitMQ
+│       └── PaymentOutboxPublisherService.cs # [TẠO MỚI] Quét outbox_messages bắn lên Kafka
 └── Api/
     └── PaymentEndpoints.cs                # [TẠO MỚI] 5 REST Endpoints cho Payment, Token & Account
 ```
@@ -76,7 +76,7 @@ src/PaymentService/
    - Tạo `IPaymentMethodProcessor` với phương thức `Task<(bool Success, string? ExternalRef, string? Error)> ChargeAsync(Guid userId, decimal amount, string? token, string idempotencyKey)`.
    - `PaymentMethodFactory.Create(string method)` trả về `WalletPaymentProcessor` hoặc `TokenizedGatewayProcessor` (`Momo`, `VNPay`, `Stripe`).
 4. **Tạo `PaymentOutboxPublisherService.cs`:**
-   - Quét bảng `outbox_messages` (`ProcessedAt == null`) mỗi 3 giây và publish `PaymentSettledEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent` lên RabbitMQ.
+   - Quét bảng `outbox_messages` (`ProcessedAt == null`) mỗi 3 giây và publish `PaymentSettledEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent` lên Kafka.
 
 ### Ngày 3 – Ngày 5: Xây Dựng Sổ Cái Kép, Idempotency & 5 REST APIs
 1. **Logic quyết toán Sổ cái kép trong `PaymentAppService.ProcessPaymentAsync` (SD 12):**
@@ -114,7 +114,7 @@ src/PaymentService/
    - `GET /api/accounts/{ownerId}`: Trả về thông tin số dư ví `AccountDto`.
 
 ### Ngày 6 – Ngày 8: Xây Dựng `TripDroppedOffConsumer` & Retry Có Giới Hạn (SD 13)
-- Lắng nghe `TripDroppedOffEvent` từ RabbitMQ.
+- Lắng nghe `TripDroppedOffEvent` từ Kafka.
 - Thực hiện retry tối đa 3 lần (với cùng `msg.IdempotencyKey`) nếu gặp lỗi kết nối cổng thanh toán tạm thời.
 - Nếu sau 3 lần vẫn lỗi: Lưu `Transaction` với `Status = TransactionStatus.PaymentPending`, cập nhật `IdempotencyRecord` (`Status = Failed`) và ghi `PaymentFailedEvent(msg.TripId, "PaymentPending", ex.Message)` vào `outbox_messages`.
 
@@ -126,7 +126,7 @@ src/PaymentService/
   4. `RefundAsync` tạo đúng 3 bút toán đảo ngược và trả lại đúng số dư ban đầu cho cả 3 tài khoản.
 
 ## 3. Cách Tự Test Độc Lập 100% (Không Cần Chờ TripService)
-1. Chạy `docker compose up -d postgres rabbitmq` và `dotnet run --project src/PaymentService`.
+1. Chạy `docker compose up -d --wait postgres kafka redis`. Đặt `Kafka__BootstrapServers=localhost:9092` khi chạy `dotnet run --project src/PaymentService`.
 2. Dùng `src/PaymentService/PaymentService.http` hoặc Scalar UI:
    - Gọi `GET http://localhost:5114/api/accounts/11111111-1111-1111-1111-111111111111` $\to$ thấy số dư ban đầu `500,000 VND`.
    - Gọi `POST http://localhost:5114/api/payments/process` kèm Header `X-Idempotency-Key: test-key-001` với `amount: 65000`, `paymentMethod: "Wallet"`.

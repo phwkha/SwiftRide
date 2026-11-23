@@ -42,7 +42,7 @@ Base URL: `https://kha-dev.impala-tritone.ts.net`.
 ### Kiểm thử local của bản sửa
 
 - `dotnet test SwiftRide.slnx --no-restore -m:1`: **108/108 ca qua**, gồm 54 ca trong Security.Tests, 19 TripService, 19 MatchingService và 16 PaymentService.
-- Security.Tests chạy HTTP và WebSocket bằng ASP.NET TestHost với JWT ký thật cho test; kiểm tra token thiếu/giả/hết hạn, giả mạo X-User-*, quyền vào phòng, availability, ví, process và refund. Ledger dùng EF InMemory; Trip lookup được giả lập ở kiểm thử API và kiểm tra HTTP client riêng. Chưa chạy bản sửa với SQL/PostgreSQL/RabbitMQ/Redis thật hoặc server triển khai.
+- Security.Tests chạy HTTP và WebSocket bằng ASP.NET TestHost với JWT ký thật cho test; kiểm tra token thiếu/giả/hết hạn, giả mạo X-User-*, quyền vào phòng, availability, ví, process và refund. Ledger dùng EF InMemory; Trip lookup được giả lập ở kiểm thử API và kiểm tra HTTP client riêng. Chưa chạy bản sửa với SQL, PostgreSQL, broker sự kiện và Redis thật hoặc server triển khai.
 - Các ca từ chối process/refund xác nhận số dư và bút toán không bị thay đổi. Có kiểm thử đối chiếu rider/driver/amount, chỉ cho phép PaymentPending, TripService không khả dụng, chuyển tiếp Bearer, và không trả response thanh toán cũ khi tái sử dụng idempotency key với request khác.
 - `docker compose config --quiet` hợp lệ. NuGet vẫn báo cảnh báo dependency có sẵn (SignalR Redis/OpenTelemetry) và xung đột phiên bản EF Relational; việc nâng cấp dependency nằm ngoài 4 sửa đổi này.
 

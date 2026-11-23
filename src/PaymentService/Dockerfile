@@ -8,9 +8,11 @@ WORKDIR /src
 COPY ["src/Shared.Contracts/Shared.Contracts.csproj", "src/Shared.Contracts/"]
 COPY ["src/Shared.Security/Shared.Security.csproj", "src/Shared.Security/"]
 COPY ["src/PaymentService/PaymentService.csproj", "src/PaymentService/"]
+COPY ["src/Shared.Messaging/Shared.Messaging.csproj", "src/Shared.Messaging/"]
 RUN dotnet restore "src/PaymentService/PaymentService.csproj"
 COPY ["src/Shared.Contracts/", "src/Shared.Contracts/"]
 COPY ["src/Shared.Security/", "src/Shared.Security/"]
+COPY ["src/Shared.Messaging/", "src/Shared.Messaging/"]
 COPY ["src/PaymentService/", "src/PaymentService/"]
 WORKDIR "/src/src/PaymentService"
 RUN dotnet build "PaymentService.csproj" -c Release -o /app/build

@@ -1593,7 +1593,7 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **Người nhận:** User đã JoinTripRoom(activeTripId).
 
-**Khi nào gửi:** Driver PUT location với activeTripId không null; cập nhật được phát qua RabbitMQ.
+**Khi nào gửi:** Driver PUT location với activeTripId không null; cập nhật được phát qua Kafka.
 
 **Payload callback nhận được:**
 ```json
@@ -1763,7 +1763,7 @@ sequenceDiagram
     participant R as Rider FE
     participant API as Gateway / REST
     participant H as SignalR Hub
-    participant B as Backend / RabbitMQ
+    participant B as Backend / Kafka
     participant D as Driver FE
     D->>H: Kết nối + JoinDriverRoom(driverId)
     D->>API: PUT availability {isAvailable:true}

@@ -1,3 +1,5 @@
+using SwiftRide.Contracts.Events;
+using SwiftRide.Messaging;
 using SwiftRide.Security;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -18,11 +20,11 @@ using StackExchange.Redis;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSwiftRideAuthentication(builder.Configuration);
 
-foreach (var requiredConnection in new[] { "PaymentDbConnection", "RabbitMq" })
-{
-    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(requiredConnection)))
-        throw new InvalidOperationException($"Missing configuration: ConnectionStrings:{requiredConnection}");
-}
+var connectionString = builder.Configuration.GetConnectionString("PaymentDbConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("Missing configuration: ConnectionStrings:PaymentDbConnection");
+
+var kafkaBootstrapServers = builder.Configuration.GetBootstrapServers();
 
 // OpenTelemetry Observability
 builder.Services.AddOpenTelemetry()
@@ -65,9 +67,6 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 builder.Services.AddSingleton<PaymentService.Infrastructure.RedisIdempotencyGuard>();
 
 // Register PostgreSQL PaymentDbContext
-var connectionString = builder.Configuration.GetConnectionString("PaymentDbConnection")
-    ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:PaymentDbConnection");
-
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseNpgsql(connectionString));
 
@@ -83,17 +82,22 @@ builder.Services.AddHttpClient<ITripSnapshotClient, TripSnapshotClient>(client =
     client.Timeout = TimeSpan.FromSeconds(5);
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
-// Register MassTransit with RabbitMQ
-builder.Services.AddMassTransit(x =>
+builder.Services.AddSwiftRideKafka(rider =>
 {
-    x.AddConsumer<TripDroppedOffConsumer>();
+    rider.AddConsumer<TripDroppedOffConsumer>();
 
-    x.UsingRabbitMq((context, cfg) =>
+    rider.AddKafkaProducer<PaymentSettledEvent>(KafkaTopics.PaymentSettled);
+    rider.AddKafkaProducer<PaymentFailedEvent>(KafkaTopics.PaymentFailed);
+    rider.AddKafkaProducer<PaymentRefundedEvent>(KafkaTopics.PaymentRefunded);
+
+    rider.UsingKafka((context, kafka) =>
     {
-        var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
-            ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
-        cfg.Host(new Uri(rabbitMqConnection));
-        cfg.ConfigureEndpoints(context);
+        kafka.Host(kafkaBootstrapServers);
+
+        const string group = "swiftride-payment";
+
+        kafka.AddKafkaConsumerEndpoint<TripDroppedOffEvent, TripDroppedOffConsumer>(
+            context, KafkaTopics.TripDroppedOff, group);
     });
 });
 
@@ -101,6 +105,7 @@ builder.Services.AddMassTransit(x =>
 builder.Services.AddHostedService<PaymentOutboxPublisherService>();
 
 var app = builder.Build();
+await KafkaMessaging.EnsureTopicsAsync(kafkaBootstrapServers);
 
 // Tao schema PayDB va seed vi mau
 using (var scope = app.Services.CreateScope())

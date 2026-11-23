@@ -19,7 +19,7 @@ Tài liệu tập trung vào **gửi gì, nhận gì, gửi/nhận vào lúc nà
 - ID là chuỗi GUID. Tiền là number theo VND; tọa độ là number; thời gian là chuỗi ISO 8601.
 - `Trip.status` trong REST là number; `newStatus` trong event realtime là string.
 - Thông báo `message`, `traceId`, ID và timestamp có thể thay đổi. Dùng HTTP status và `errors[].code` để xử lý logic.
-- Collection gọi tay: [APIs Only](../postman/SwiftRide.APIsOnly.postman_collection.json), dùng cùng [environment server](../postman/SwiftRide.Server.postman_environment.json) hoặc [environment local](../postman/SwiftRide.postman_environment.json). Environment server để trống `demo_password`; điền mật khẩu demo được BE cung cấp, khớp cấu hình server. Không Run toàn bộ collection như một kịch bản tuần tự vì reject/cancel là nhánh thay thế.
+- Trong collection SwiftRide, mở thư mục **02. Gọi API thủ công** và dùng **Send** cho từng request. Chọn environment server hoặc local và điền `demo_password` theo cấu hình môi trường. [Collection SwiftRide](../postman/SwiftRide.postman_collection.json) · [Môi trường Server](../postman/SwiftRide.Server.postman_environment.json) · [Môi trường Local](../postman/SwiftRide.postman_environment.json)
 
 ### Kết nối từ trình duyệt
 
@@ -72,7 +72,7 @@ Không phải mọi lỗi đều có envelope: lỗi JWT/Gateway có thể trả
 | refreshToken | string | Dùng đổi token; refresh thành công làm token refresh cũ mất hiệu lực |
 | expiresIn | number | Số giây access token có hiệu lực, không phải timestamp |
 | user.id | GUID string | ID user đang đăng nhập; role Driver dùng ID này cho route vị trí của mình |
-| quoteId | GUID string | ID báo giá, dùng khi tạo chuyến |
+| quoteId | GUID string | ID dùng để gắn báo giá vào chuyến Requested |
 | tripId / Trip.id | GUID string | ID chuyến, dùng cho action và phòng realtime |
 | transactionId | GUID string | ID giao dịch thanh toán; dùng cho hoàn tiền, khác tripId |
 | paymentTokenId | GUID string | ID nguồn tiền đã liên kết, khác token/maskedToken |
@@ -256,17 +256,17 @@ Không có body.
   "message": "Quote generated successfully",
   "data": {
     "quoteId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
     "pricingBreakdown": {
-      "distanceCost": 20798.45808247298,
+      "distanceCost": 20800,
       "timeCost": 6000,
       "surgeMultiplier": 1.3,
       "tollFee": 0,
       "discountRate": 1,
       "taxRate": 0.1
     },
-    "totalFare": 38322,
+    "totalFare": 38324,
     "expiresAt": "2026-11-09T16:10:00Z"
   },
   "meta": null,
@@ -277,7 +277,7 @@ Không có body.
 
 **Lỗi cần xử lý:** 400 VALIDATION_ERROR; 404 PRICING_NOT_FOUND nếu không có cấu hình giá.
 
-**Sau khi nhận response:** Giữ quoteId, distanceKm, estimatedDurationMinutes, totalFare để tạo chuyến. expiresAt thường sau khoảng 10 phút; đổi tuyến/loại xe hoặc hết hạn thì lấy báo giá mới. discountRate hiện là hệ số promo (1 nghĩa là giữ nguyên), không phải số phần trăm giảm.
+**Sau khi nhận response:** Hiển thị totalFare, distanceKm và estimatedDurationMinutes. Gắn quoteId vào chuyến Requested bằng PUT /api/trips/{id}/quote. Báo giá có hạn 10 phút. Khi đổi tuyến hoặc loại xe, tạo chuyến Requested với dữ liệu mới và lấy báo giá tương ứng. Nếu báo giá hết hạn, lấy báo giá mới cho cùng chuyến.
 
 ### 05. Tìm tài xế quanh điểm đón
 
@@ -494,28 +494,22 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
 
 | Trường | Kiểu / yêu cầu | Ý nghĩa |
 |---|---|---|
-| quoteId | GUID hoặc null, tùy chọn | Nên dùng quoteId thực tế; không gửi chuỗi rỗng |
+| quoteId | GUID hoặc null, tùy chọn | Client đã lấy báo giá có thể gắn ngay khi tạo chuyến |
 | pickupLatitude / pickupLongitude / pickupAddress | number / number / string | Tọa độ hợp lệ và địa chỉ đón không rỗng |
 | dropoffLatitude / dropoffLongitude / dropoffAddress | number / number / string | Tọa độ hợp lệ và địa chỉ trả không rỗng |
-| distanceKm | number >= 0 | Sao chép từ quote |
-| estimatedDurationMinutes | integer > 0 | Sao chép từ quote |
-| estimatedFare | number >= 0 | Lấy từ quote.totalFare |
+| distanceKm, estimatedDurationMinutes, estimatedFare | number, tùy chọn | Trường tương thích. Server lấy các số liệu từ báo giá đã xác minh |
 | vehicleType | string, mặc định Bike | Bike / Car4 / Car7 |
 
 **Request body:**
 ```json
 {
-  "quoteId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   "pickupLatitude": 10.7755,
   "pickupLongitude": 106.699,
   "dropoffLatitude": 10.785,
   "dropoffLongitude": 106.71,
   "vehicleType": "Bike",
   "pickupAddress": "Điểm đón mẫu",
-  "dropoffAddress": "Điểm trả mẫu",
-  "distanceKm": 2.079845808247298,
-  "estimatedDurationMinutes": 6,
-  "estimatedFare": 38322
+  "dropoffAddress": "Điểm trả mẫu"
 }
 ```
 
@@ -528,7 +522,7 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
     "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     "riderId": "11111111-1111-1111-1111-111111111111",
     "driverId": null,
-    "quoteId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "quoteId": null,
     "status": 0,
     "pickupLatitude": 10.7755,
     "pickupLongitude": 106.699,
@@ -536,9 +530,9 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
-    "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "distanceKm": 0,
+    "estimatedDurationMinutes": 0,
+    "estimatedFare": 0,
     "actualFare": null,
     "fareConfirmed": false,
     "vehicleType": "Bike",
@@ -559,9 +553,26 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
 }
 ```
 
-**Lỗi cần xử lý:** 400 với lỗi trường cụ thể như INVALID_PICKUP_ADDRESS, INVALID_DURATION, INVALID_FARE; GUID/JSON sai cũng có thể trả 400.
+**Sau khi nhận response:** Lưu data.id làm tripId và tham gia phòng SignalR của chuyến. Lấy báo giá với cùng tọa độ và loại xe. Nếu yêu cầu tạo chuyến timeout, đọc active trip trước khi gửi lại.
 
-**Sau khi nhận response:** Lưu data.id làm tripId, join phòng chuyến rồi mới confirm. API hiện nhận giá/tuyến từ body, không nên suy ra rằng server đã đối chiếu tất cả dữ liệu với quoteId. Không tự retry tạo chuyến khi timeout; đọc active trip trước.
+#### Gắn báo giá vào chuyến Requested
+
+**PUT `/api/trips/{id}/quote`** với token của Rider sở hữu chuyến.
+
+```json
+{"quoteId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}
+```
+
+HTTP 200 trả về Trip với quoteId, estimatedFare, distanceKm và estimatedDurationMinutes lấy từ Matching/Pricing. fareConfirmed vẫn là false.
+
+| HTTP | Mã | Xử lý |
+|---|---|---|
+| 400 | QUOTE_REQUIRED, QUOTE_MISMATCH | Kiểm tra quoteId, tọa độ đón/trả và loại xe |
+| 403 | FORBIDDEN_QUOTE_ACCESS, FORBIDDEN_TRIP_ACCESS | Dùng báo giá và chuyến của Rider đang đăng nhập |
+| 404 | QUOTE_NOT_FOUND | Tạo báo giá mới nếu báo giá cũ đã được dọn |
+| 409 | QUOTE_EXPIRED | Tạo báo giá mới và gắn lại |
+| 409 | TRIP_INVALID_TRANSITION, TRIP_CONCURRENCY_CONFLICT | Tải lại chuyến |
+| 503 | QUOTE_SERVICE_UNAVAILABLE | Thử lại khi dịch vụ báo giá hoạt động |
 
 ### 10. Chủ chuyến xác nhận giá
 
@@ -573,8 +584,11 @@ Path id là tripId.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
-**Request body:**
-Không có body.
+**Request body:** Gửi quoteId của báo giá đang hiển thị. Client cũ có thể bỏ body để xác nhận báo giá đã gắn.
+
+```json
+{"quoteId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}
+```
 
 **Response HTTP 200:**
 ```json
@@ -593,9 +607,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -616,9 +630,9 @@ Không có body.
 }
 ```
 
-**Lỗi cần xử lý:** 403 FORBIDDEN_TRIP_ACCESS; 404 TRIP_NOT_FOUND; 409 TRIP_INVALID_TRANSITION.
+**Lỗi cần xử lý:** Các lỗi xác minh giống bước gắn báo giá. QUOTE_CHANGED (409) yêu cầu tải lại chuyến và hiển thị báo giá hiện tại trước khi xác nhận.
 
-**Sau khi nhận response:** status vẫn là 0, fareConfirmed chuyển true. Ghép xe chạy bất đồng bộ sau response; Driver nhận ReceiveTripOffer. Không gửi body {quoteId}: endpoint hiện không đọc body này.
+**Sau khi nhận response:** Lần xác nhận đầu chuyển fareConfirmed thành true và khởi động matching. Gửi lại cùng quoteId trả về trạng thái hiện tại của chuyến. Giá đã chốt dùng đến khi quyết toán.
 
 ### 11. Lấy chuyến đang hoạt động
 
@@ -650,9 +664,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -709,9 +723,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -744,7 +758,7 @@ Path id là tripId trong ReceiveTripOffer.
 
 **Header:** Auth của Driver trong luồng nhận đề nghị.
 
-**Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
+**Path/query:** Dùng tripId và gửi `?offerId=<GUID>` lấy từ ReceiveTripOffer. Client cũ có thể bỏ query. Backend luôn kiểm tra người nhận và hạn của offer đang mở.
 
 **Request body:**
 Không có body.
@@ -766,9 +780,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -789,7 +803,7 @@ Không có body.
 }
 ```
 
-**Lỗi cần xử lý:** 404 TRIP_NOT_FOUND; 409 TRIP_INVALID_TRANSITION hoặc TRIP_ALREADY_ACCEPTED.
+**Lỗi cần xử lý:** 403 nếu thiếu role Driver hoặc FORBIDDEN_OFFER_ACCESS. 404 TRIP_NOT_FOUND. 409 OFFER_NOT_ACTIVE, OFFER_EXPIRED hoặc TRIP_CONCURRENCY_CONFLICT. Đóng popup và cập nhật giao diện nếu offer đã đóng.
 
 **Sau khi nhận response:** driverId được lấy từ người gọi, status thành 1. Rider nhận TripStatusChanged với newStatus = DriverAccepted. FE không gửi driverId trong body.
 
@@ -801,7 +815,7 @@ Nhánh thay thế cho accept; không gọi tiếp như bước bắt buộc sau 
 
 **Header:** Auth của Driver trong luồng từ chối + `Content-Type: application/json`.
 
-**Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
+**Path/query:** Dùng tripId và gửi `?offerId=<GUID>` lấy từ ReceiveTripOffer. Client cũ có thể bỏ query. Backend luôn kiểm tra người nhận và hạn của offer đang mở.
 
 **Dữ liệu gửi:**
 
@@ -833,9 +847,9 @@ Nhánh thay thế cho accept; không gọi tiếp như bước bắt buộc sau 
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -856,9 +870,9 @@ Nhánh thay thế cho accept; không gọi tiếp như bước bắt buộc sau 
 }
 ```
 
-**Lỗi cần xử lý:** 404 TRIP_NOT_FOUND; 409 nếu chuyển trạng thái không hợp lệ.
+**Lỗi cần xử lý:** 403 nếu thiếu role Driver hoặc FORBIDDEN_OFFER_ACCESS. 404 TRIP_NOT_FOUND. 409 OFFER_NOT_ACTIVE, OFFER_EXPIRED hoặc TRIP_CONCURRENCY_CONFLICT. Đóng popup và cập nhật giao diện nếu offer đã đóng.
 
-**Sau khi nhận response:** Ví dụ là lần từ chối đầu: status vẫn 0, số lần tăng lên 1. Backend tìm tài xế khác; quá 3 lần từ chối có thể chuyển Failed (9).
+**Sau khi nhận response:** Trong ví dụ lần từ chối đầu, status vẫn là 0 và driverRejectionCount tăng lên 1. Từ chối và hết hạn đều tính vào giới hạn 4 lượt ghép. Khi cạn lượt hoặc hết tài xế phù hợp, chuyến chuyển Failed (9).
 
 ### 15. Bắt đầu đến điểm đón
 
@@ -890,9 +904,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -947,9 +961,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -1014,10 +1028,10 @@ Chỉ gọi sau pick-up.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
-    "actualFare": 38322,
+    "estimatedFare": 38324,
+    "actualFare": 38324,
     "fareConfirmed": true,
     "vehicleType": "Bike",
     "driverRejectionCount": 0,
@@ -1081,9 +1095,9 @@ Nhánh hủy khi trạng thái còn cho phép; không chạy sau Completed.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -1141,9 +1155,9 @@ Không có body.
       "dropoffLongitude": 106.71,
       "pickupAddress": "Điểm đón mẫu",
       "dropoffAddress": "Điểm trả mẫu",
-      "distanceKm": 2.079845808247298,
+      "distanceKm": 2.08,
       "estimatedDurationMinutes": 6,
-      "estimatedFare": 38322,
+      "estimatedFare": 38324,
       "actualFare": null,
       "fareConfirmed": true,
       "vehicleType": "Bike",
@@ -1212,7 +1226,7 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   "riderId": "11111111-1111-1111-1111-111111111111",
   "driverId": "22222222-2222-2222-2222-222222222222",
-  "amount": 38322,
+  "amount": 38324,
   "paymentMethod": "Wallet",
   "paymentTokenId": null
 }
@@ -1228,10 +1242,10 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
     "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     "status": "Success",
     "paymentMethod": "Wallet",
-    "totalAmount": 38322,
-    "riderDebitAmount": 38322,
-    "driverCreditAmount": 30657.6,
-    "platformFeeAmount": 7664.4,
+    "totalAmount": 38324,
+    "riderDebitAmount": 38324,
+    "driverCreditAmount": 30659.2,
+    "platformFeeAmount": 7664.8,
     "description": "Thanh toan chuyen di qua Wallet",
     "createdAt": "2026-11-09T16:00:00Z"
   },
@@ -1275,7 +1289,7 @@ Path dùng transactionId từ Payment response hoặc PaymentCompleted, không d
   "message": "Hoan tien thanh cong",
   "data": {
     "transactionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    "refundAmount": 38322,
+    "refundAmount": 38324,
     "status": "Refunded",
     "refundedAt": "2026-11-09T16:00:00Z"
   },
@@ -1428,7 +1442,7 @@ Không có body.
 | 9 | Failed | Thất bại |
 
 ```text
-Rider: login → quote → create trip → JoinTripRoom → confirm-quote
+Rider: login → create Requested → JoinTripRoom → quote → attach quote → confirm-quote
 Driver: login → JoinDriverRoom → availability=true → nhận ReceiveTripOffer
 Driver: accept → start-route → pick-up → drop-off
 Backend: quyết toán tự động → PaymentCompleted và REST trip dần tới Completed
@@ -1519,12 +1533,13 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **Người nhận:** Driver đã JoinDriverRoom(driverId).
 
-**Khi nào gửi:** Matching tìm/giữ được tài xế và phát đề nghị.
+**Khi nào gửi:** TripService lưu đề nghị sau khi Matching giữ được tài xế.
 
 **Payload callback nhận được:**
 ```json
 {
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "offerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   "driverId": "22222222-2222-2222-2222-222222222222",
   "pickupAddress": "Điểm đón mẫu",
   "pickupLatitude": 10.7755,
@@ -1532,8 +1547,8 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
   "dropoffAddress": "Điểm trả mẫu",
   "dropoffLatitude": 10.785,
   "dropoffLongitude": 106.71,
-  "estimatedFare": 38322,
-  "distanceKm": 2.079845808247298,
+  "estimatedFare": 38324,
+  "distanceKm": 2.08,
   "durationMinutes": 6,
   "countdownSeconds": 15,
   "expiresAt": "2026-11-09T16:00:15Z"
@@ -1542,25 +1557,26 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 | Field | Kiểu / ý nghĩa |
 |---|---|
-| tripId / driverId | GUID string; chuyến được đề nghị và tài xế nhận đề nghị |
+| tripId / driverId / offerId | GUID string; chuyến được đề nghị và tài xế nhận đề nghị |
 | pickup*/dropoff* | Địa chỉ string và tọa độ number |
 | estimatedFare / distanceKm | number; giá và km dự kiến |
 | durationMinutes | integer; khác tên estimatedDurationMinutes trong Quote/Trip |
 | countdownSeconds | integer; khoảng thời gian nhận đề nghị |
 | expiresAt | ISO string; thời điểm hết hiệu lực đề nghị |
 
-**FE xử lý:** Hiển thị tuyến, giá, countdown theo expiresAt. Nhấn đồng ý gọi REST accept; từ chối gọi REST reject. Không invoke một method Accept trên hub vì backend không có method đó. Offer chứa dữ liệu tuyến để Driver xem trước khi được gán quyền đọc Trip.
+**FE xử lý:** Hiển thị mỗi offerId một lần và tính đếm ngược theo expiresAt. Gửi cùng offerId khi gọi accept hoặc reject.
 
 ### 9.2 TripOfferExpired
 
 **Người nhận:** Driver trong phòng driverId.
 
-**Khi nào gửi:** Backend phát sự kiện hủy/hết hiệu lực offer; hiện luồng hủy chuyến có phát event này.
+**Khi nào gửi:** Backend phát khi offer hết hạn hoặc Rider hủy chuyến đang có offer. Matching thử tài xế khác sau hết hạn trong giới hạn 4 lượt.
 
 **Payload callback nhận được:**
 ```json
 {
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "offerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   "driverId": "22222222-2222-2222-2222-222222222222",
   "message": "Chuyến đi đã bị hủy"
 }
@@ -1568,10 +1584,10 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 | Field | Kiểu / ý nghĩa |
 |---|---|
-| tripId / driverId | GUID string; xác định popup cần đóng |
+| tripId / driverId / offerId | GUID string; xác định popup cần đóng |
 | message | string; thông báo từ backend |
 
-**FE xử lý:** Đóng popup của đúng tripId. Tự đếm ngược theo expiresAt; không dựa vào giả định server chắc chắn gửi event đúng giây thứ 15.
+**FE xử lý:** Đóng popup khớp offerId và dùng expiresAt để tự đóng khi đếm ngược kết thúc.
 
 ### 9.3 DriverLocationUpdated
 
@@ -1701,9 +1717,9 @@ Payload trực tiếp gồm `tripId`, `newStatus`, `driverId`, `timestamp` và `
 {
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   "transactionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-  "totalAmount": 38322,
+  "totalAmount": 38324,
   "paymentMethod": "Wallet",
-  "netEarnings": 30657.6,
+  "netEarnings": 30659.2,
   "status": "Success",
   "completedAt": "2026-11-09T16:00:00Z"
 }
@@ -1724,7 +1740,7 @@ Payload trực tiếp gồm `tripId`, `newStatus`, `driverId`, `timestamp` và `
 
 ```ts
 hub.on("ReceiveTripOffer", payload => {
-  // payload.tripId, payload.estimatedFare, payload.expiresAt
+  // payload.tripId, payload.offerId, payload.estimatedFare, payload.expiresAt
 });
 hub.on("DriverLocationUpdated", payload => {
   // payload.latitude, payload.longitude; KHÔNG phải payload.data.latitude
@@ -1736,7 +1752,7 @@ hub.on("PaymentCompleted", payload => {
   // payload.transactionId dùng cho hóa đơn/hoàn tiền.
 });
 hub.on("TripOfferExpired", payload => {
-  // Đóng popup tương ứng payload.tripId.
+  // Đóng popup tương ứng payload.offerId.
 });
 ```
 
@@ -1751,17 +1767,18 @@ sequenceDiagram
     participant D as Driver FE
     D->>H: Kết nối + JoinDriverRoom(driverId)
     D->>API: PUT availability {isAvailable:true}
-    R->>API: POST quote (tọa độ, loại xe)
-    API-->>R: Quote (quoteId, totalFare, khoảng cách, phút)
-    R->>API: POST trips (dữ liệu quote + địa chỉ)
+    R->>API: POST trips (tọa độ, địa chỉ, loại xe)
     API-->>R: Trip Requested (id, status:0)
     R->>H: Kết nối + JoinTripRoom(tripId)
-    R->>API: POST confirm-quote (không body)
+    R->>API: POST quote (tọa độ, loại xe)
+    API-->>R: Quote (quoteId, totalFare, khoảng cách, phút)
+    R->>API: PUT trips/{id}/quote (quoteId)
+    R->>API: POST confirm-quote (quoteId)
     API-->>R: Trip status:0, fareConfirmed:true
     API->>B: Sự kiện ghép tài xế
     B->>H: TripOfferDispatchedEvent
     H-->>D: ReceiveTripOffer(payload)
-    D->>API: PUT accept (không body)
+    D->>API: PUT accept?offerId=...
     API-->>D: Trip status:1
     D->>H: JoinTripRoom(tripId)
     B->>H: TripAcceptedEvent
@@ -1793,5 +1810,3 @@ sequenceDiagram
 ## 11. Endpoint tiện ích không thuộc luồng FE
 
 `GET /` trả `{"service":"ApiGateway","status":"Running"}` để kiểm tra Gateway. Nó không dùng envelope nghiệp vụ.
-
-`POST /dev/simulate-trip-requested` chỉ phục vụ Development, gọi trực tiếp MatchingService để publish event; không tạo Trip trong SQL và có thể giữ tài xế. Frontend không cần tích hợp endpoint này. Dùng REST tạo chuyến + confirm-quote trong luồng người dùng.

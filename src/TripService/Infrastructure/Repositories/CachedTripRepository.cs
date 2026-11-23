@@ -61,6 +61,9 @@ public sealed class CachedTripRepository : ITripReader, ITripWriter
     public Task<Trip?> GetActiveTripByUserAsync(Guid userId, CancellationToken ct = default)
         => _innerRepo.GetActiveTripByUserAsync(userId, ct);
 
+    public Task<Trip?> GetCurrentByIdAsync(Guid id, CancellationToken ct = default)
+        => _innerRepo.GetCurrentByIdAsync(id, ct);
+
     public async Task AddAsync(
         Trip trip,
         TripStatusHistory history,

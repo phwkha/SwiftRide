@@ -56,7 +56,11 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 
 // Add SignalR with Redis Backplane
-var signalRBuilder = builder.Services.AddSignalR();
+var signalRBuilder = builder.Services.AddSignalR(options =>
+{
+    // Keep idle driver connections alive through the gateway's 10-second activity timeout.
+    options.KeepAliveInterval = TimeSpan.FromSeconds(5);
+});
 if (!string.IsNullOrEmpty(redisConn))
 {
     signalRBuilder.AddStackExchangeRedis(redisConn, options =>
@@ -82,8 +86,16 @@ builder.Services.AddScoped<ITripReader>(sp =>
 builder.Services.AddScoped<ITripWriter>(sp =>
     sp.GetRequiredService<CachedTripRepository>());
 
-builder.Services.AddScoped<ITripAppService, TripAppService>();
-builder.Services.AddScoped<MatchingFailedConsumer>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddHttpClient<ITripQuoteClient, TripQuoteClient>(client =>
+{
+    var address = builder.Configuration["Downstream:MatchingService"] ?? "http://localhost:5248";
+    client.BaseAddress = new Uri(address.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<TripAppService>();
+builder.Services.AddScoped<ITripAppService>(sp => sp.GetRequiredService<TripAppService>());
 builder.Services.AddScoped<PaymentSettledConsumer>();
 builder.Services.AddScoped<PaymentFailedConsumer>();
 
@@ -91,6 +103,7 @@ builder.Services.AddScoped<PaymentFailedConsumer>();
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<MatchingFailedConsumer>();
+    x.AddConsumer<TripOfferProposedConsumer>();
     x.AddConsumer<PaymentSettledConsumer>();
     x.AddConsumer<PaymentFailedConsumer>();
     x.AddConsumer<TripOfferDispatchedConsumer>();
@@ -106,12 +119,18 @@ builder.Services.AddMassTransit(x =>
         var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
             ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
         cfg.Host(new Uri(rabbitMqConnection));
+        cfg.UseMessageRetry(retry =>
+        {
+            retry.Handle<DbUpdateConcurrencyException>();
+            retry.Immediate(3);
+        });
         cfg.ConfigureEndpoints(context);
     });
 });
 
 // Register Outbox publisher background service
 builder.Services.AddHostedService<OutboxPublisherService>();
+builder.Services.AddHostedService<MatchingDeadlineService>();
 
 var app = builder.Build();
 

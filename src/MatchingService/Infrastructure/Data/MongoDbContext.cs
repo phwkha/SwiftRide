@@ -25,7 +25,7 @@ public class MongoDbContext
     public IMongoCollection<PricingConfig> PricingConfigs => _database.GetCollection<PricingConfig>("PricingConfigs");
     public IMongoCollection<SurgeZone> SurgeZones => _database.GetCollection<SurgeZone>("SurgeZones");
     public IMongoCollection<TripQuote> TripQuotes => _database.GetCollection<TripQuote>("TripQuotes");
-    public IMongoCollection<CancelledTrip> CancelledTrips => _database.GetCollection<CancelledTrip>("CancelledTrips");
+    public IMongoCollection<MatchingClosure> MatchingClosures => _database.GetCollection<MatchingClosure>("CancelledTrips");
 
     /// <summary>
     /// Ensures geospatial, lookup, and TTL indexes exist on collections.
@@ -75,9 +75,12 @@ public class MongoDbContext
             .Ascending(p => p.IsActive);
         await PricingConfigs.Indexes.CreateOneAsync(new CreateIndexModel<PricingConfig>(pricingIndex));
 
-        // 8. Cancelled-trip tombstones prevent delayed matching events from dispatching cancelled trips
-        var cancelledTripTtlIndex = Builders<CancelledTrip>.IndexKeys.Ascending(trip => trip.ExpiresAt);
-        await CancelledTrips.Indexes.CreateOneAsync(new CreateIndexModel<CancelledTrip>(
+        // Preserve terminal cancellation markers written by the previous version.
+        await MatchingClosures.UpdateManyAsync(
+            Builders<MatchingClosure>.Filter.Exists(trip => trip.ClosedThroughAttempt, false),
+            Builders<MatchingClosure>.Update.Set(trip => trip.ClosedThroughAttempt, int.MaxValue));
+        var cancelledTripTtlIndex = Builders<MatchingClosure>.IndexKeys.Ascending(trip => trip.ExpiresAt);
+        await MatchingClosures.Indexes.CreateOneAsync(new CreateIndexModel<MatchingClosure>(
             cancelledTripTtlIndex, new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }));
     }
 }

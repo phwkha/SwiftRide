@@ -1,27 +1,30 @@
 using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using SwiftRide.Contracts.Events;
+using TripService.Domain.Enums;
+using TripService.Domain.Interfaces;
 
 namespace TripService.Api.Hubs;
 
 // Consumer 1: Dispatch trip offer popup to driver (SD 11)
-public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext, ILogger<TripOfferDispatchedConsumer> logger)
+public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext, ITripReader trips, TimeProvider clock)
     : IConsumer<TripOfferDispatchedEvent>
 {
     public async Task Consume(ConsumeContext<TripOfferDispatchedEvent> context)
     {
         var e = context.Message;
-        if (e.ExpiresAt <= DateTimeOffset.UtcNow)
-        {
-            logger.LogWarning("Offer for trip {TripId} and driver {DriverId} arrived at the hub after expiry {ExpiresAt}.",
-                e.TripId, e.DriverId, e.ExpiresAt);
-        }
+        var trip = await trips.GetCurrentByIdAsync(e.TripId, context.CancellationToken);
+        var remaining = e.ExpiresAt - clock.GetUtcNow();
+        if (trip is not { Status: TripStatus.Requested } || e.OfferId == Guid.Empty ||
+            trip.OfferId != e.OfferId || trip.OfferedDriverId != e.DriverId || remaining <= TimeSpan.Zero)
+            return;
 
         var groupName = $"driver_{e.DriverId.ToString().ToLowerInvariant()}";
         await hubContext.Clients.Group(groupName)
             .SendAsync("ReceiveTripOffer", new
             {
                 e.TripId,
+                e.OfferId,
                 e.DriverId,
                 e.PickupAddress,
                 e.PickupLatitude,
@@ -32,10 +35,9 @@ public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext, ILogge
                 e.EstimatedFare,
                 e.DistanceKm,
                 e.DurationMinutes,
-                e.CountdownSeconds,
+                CountdownSeconds = (int)Math.Ceiling(remaining.TotalSeconds),
                 e.ExpiresAt
             }, context.CancellationToken);
-        logger.LogInformation("Sent offer for trip {TripId} to SignalR driver group {DriverId}.", e.TripId, e.DriverId);
     }
 }
 
@@ -52,8 +54,9 @@ public class TripOfferExpiredConsumer(IHubContext<TripHub> hubContext)
             {
                 e.TripId,
                 e.DriverId,
+                e.OfferId,
                 e.Message
-            });
+            }, context.CancellationToken);
     }
 }
 

@@ -1,10 +1,23 @@
 # 🚀 SwiftRide - Cẩm Nang Khởi Chạy & Hướng Dẫn Kiểm Thử Từng API (API Testing Guide)
 
 > **Cổng vào tập trung (API Gateway):** `http://localhost:5000`  
-> **Căn cứ kế hoạch kiến trúc:** [`docs/api_contract_and_fe_integration.md`](api_contract_and_fe_integration.md) (23 Core REST Endpoints + 5 Kênh SignalR) & [`docs/planai/swiftride_fix_guide.md`](planai/swiftride_fix_guide.md) (Gateway Aggregation Endpoint)  
+> API REST và SignalR được mô tả trong hợp đồng FE. [Hợp đồng FE](api_contract_and_fe_integration.md)
 > **Giao thức xác thực:** JWT Bearer (`Authorization: Bearer <TOKEN>`)  
 > **Định dạng dữ liệu:** JSON chuẩn hóa theo mẫu `ApiResponse<T>`  
 > **SignalR Realtime Hub:** `ws://localhost:5000/hubs/trips?access_token=<TOKEN>`
+
+## Bộ Postman SwiftRide
+
+1. Import [collection SwiftRide](../postman/SwiftRide.postman_collection.json) và môi trường [Local](../postman/SwiftRide.postman_environment.json) hoặc [Server](../postman/SwiftRide.Server.postman_environment.json).
+2. Chọn môi trường đã import, điền `demo_password` theo `SWIFTRIDE_DEMO_PASSWORD` và trỏ `base_url` vào Gateway đang chạy bản đã cập nhật.
+3. Chọn **Run collection** để chạy **01. Kiểm thử mục 1 và 2** một lượt với delay bằng 0. Dữ liệu demo cần Driver 1 và Driver 2 loại Bike đang rảnh, theo vị trí seed, và ví Rider đủ tiền.
+
+Mục 01 tự đăng nhập, lấy `offerId` qua SignalR và kiểm tra báo giá, quyền tài xế, từ chối, hết hạn, hủy và số tiền Wallet. Lượt chạy tạo một giao dịch Wallet trên dữ liệu demo. Khi chờ offer tự hết hạn, Gateway có thể trả 504 cho một lượt Long Polling. Collection mở lượt poll tiếp theo và kiểm tra đúng sự kiện `TripOfferExpired`.
+
+- **02. Gọi API thủ công** dùng **Send** cho từng request.
+- **03. Kiểm thử API mở rộng** dùng **Run folder** với môi trường Local. Các ca kiểm tra trực tiếp microservice dùng `trip_url`, `matching_url` và `payment_url`.
+- **04. Báo giá cần dữ liệu chuẩn bị** dùng **Send** với `expired_quote_id` hoặc `foreign_quote_id`. Đăng nhập lại bằng request Rider trong mục 01 nếu Postman không lưu biến của lượt chạy. Báo giá hết hạn sau 10 phút và có thể đã bị TTL dọn. Ca khác chủ cần báo giá của một tài khoản Rider thứ hai.
+- **05. Thanh toán cần chuyến PaymentPending** dùng **Send**. Đăng nhập bằng Rider sở hữu chuyến, điền `pending_trip_id` rồi gửi **Đọc chuyến PaymentPending** để lấy tài xế, giá quyết toán và idempotency key cho các ca sau. Gửi ca lỗi trước, sau đó chọn một phương thức thanh toán cho mỗi chuyến.
 
 ---
 
@@ -19,7 +32,6 @@
    - [5.3. Nhóm Quản lý vòng đời chuyến đi (Trip APIs - #09 đến #18)](#53-nhóm-quản-lý-vòng-đời-chuyến-đi-trip-apis---09-đến-18)
    - [5.4. Nhóm Gateway Aggregation (#19)](#54-nhóm-gateway-aggregation---19)
    - [5.5. Nhóm Thanh toán, Ví & Sổ cái (Payment APIs - #20 đến #24)](#55-nhóm-thanh-toán-ví--sổ-cái-payment-apis---20-đến-24)
-   - [5.6. Endpoint giả lập môi trường Dev (#25)](#56-endpoint-giả-lập-môi-trường-dev---25)
    - [5.7. Nhóm Kết nối Realtime SignalR Hub (5 Sự kiện)](#57-nhóm-kết-nối-realtime-signalr-hub-5-sự-kiện)
 6. [Kiểm thử các kịch bản ngoại lệ & Bảo mật (Edge Cases)](#6-kiểm-thử-các-kịch-bản-ngoại-lệ--bảo-mật-edge-cases)
 
@@ -66,7 +78,7 @@ dotnet run --project src/ApiGateway
 
 ## 2. Bảng đối chiếu 100% API theo kế hoạch (API Coverage Matrix)
 
-Toàn bộ **23 Core REST Endpoints** trong tài liệu đặc tả [`docs/api_contract_and_fe_integration.md`](api_contract_and_fe_integration.md) (Mục 4.1), cùng với **Endpoint Aggregation (FIX-05)** và **Endpoint Dev Simulator** đều được liệt kê đầy đủ dưới đây:
+Bảng dưới đây liệt kê API công khai của Gateway, gồm API gắn báo giá vào chuyến Requested và API tổng quan chuyến. [Hợp đồng FE](api_contract_and_fe_integration.md)
 
 | STT | Phân Hệ | Method | Endpoint Route | Route Alias trong PDF (Mục 5) | Mục Đích Nghiệp Vụ | Trạng Thái Trong Hướng Dẫn |
 | :-: | :--- | :-: | :--- | :--- | :--- | :-: |
@@ -79,6 +91,7 @@ Toàn bộ **23 Core REST Endpoints** trong tài liệu đặc tả [`docs/api_c
 | **#07** | Driver | `PUT` | `/api/drivers/{id}/location` | — | Driver gửi GPS (`lat`, `lng`, `bearing`, `speed`) mỗi 10s | ✅ Có cURL mẫu |
 | **#08** | Driver | `PUT` | `/api/drivers/{id}/availability` | — | Driver bật / tắt trạng thái nhận chuyến (`is_available`) | ✅ Có cURL mẫu |
 | **#09** | Trip | `POST` | `/api/trips` | `POST /trips` | Khách tạo chuyến mới ở trạng thái `Requested` | ✅ Có cURL mẫu |
+| | Trip | `PUT` | `/api/trips/{id}/quote` | — | Gắn báo giá đã xác minh vào chuyến Requested | ✅ Có cURL mẫu |
 | **#10** | Trip | `POST` | `/api/trips/{id}/confirm-quote` | — | Khách xác nhận chốt giá -> Phát `TripRequestedEvent` | ✅ Có cURL mẫu |
 | **#11** | Trip | `GET` | `/api/trips/active` | — | Lấy chuyến đi đang chạy dở của User (F5 khôi phục) | ✅ Có cURL mẫu |
 | **#12** | Trip | `GET` | `/api/trips/{id}` | — | Tra cứu chi tiết và Fallback Polling cuốc xe | ✅ Có cURL mẫu |
@@ -94,7 +107,6 @@ Toàn bộ **23 Core REST Endpoints** trong tài liệu đặc tả [`docs/api_c
 | **#22** | Payment | `POST` | `/api/payment-tokens` | — | Liên kết nguồn tiền (`Momo`/`VNPay`/`Stripe`) PCI-DSS | ✅ Có cURL mẫu |
 | **#23** | Payment | `GET` | `/api/payment-tokens` | — | Lấy danh sách thẻ/ví đã liên kết của người dùng | ✅ Có cURL mẫu |
 | **#24** | Payment | `GET` | `/api/accounts/{ownerId}` | — | Tra cứu số dư tài khoản ví Khách hàng / Tài xế | ✅ Có cURL mẫu |
-| **#25** | Dev | `POST` | `/dev/simulate-trip-requested` | — | Giả lập phát sự kiện `TripRequestedEvent` vào RabbitMQ | ✅ Có cURL mẫu |
 
 ---
 
@@ -264,19 +276,32 @@ export TRIP_ID=$(curl -s -X POST http://localhost:5000/api/trips \
     "dropoffLatitude": 10.7829,
     "dropoffLongitude": 106.6989,
     "dropoffAddress": "Nhà thờ Đức Bà, Quận 1",
-    "distanceKm": 2.5,
-    "estimatedDurationMinutes": 8,
-    "estimatedFare": 35000,
     "vehicleType": "Bike"
   }' | jq -r '.data.id')
 
 echo "Created Trip ID: $TRIP_ID"
 ```
 
-#### API #10: Khách hàng chốt báo giá (`POST /api/trips/{id}/confirm-quote`)
+#### Gắn báo giá và xác nhận
+
+Sau khi đã tạo Requested, lấy một báo giá với cùng điểm đón, điểm trả và loại xe.
+
 ```bash
-curl -s -X POST http://localhost:5000/api/trips/$TRIP_ID/confirm-quote \
-  -H "Authorization: Bearer $RIDER_TOKEN" | jq .
+QUOTE_ID=$(curl -fsS -X POST http://localhost:5000/api/matching/quote \
+  -H "Authorization: Bearer $RIDER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"pickupLatitude":10.7769,"pickupLongitude":106.7009,"dropoffLatitude":10.7829,"dropoffLongitude":106.6989,"vehicleType":"Bike"}' \
+  | jq -r '.data.quoteId')
+
+curl -fsS -X PUT "http://localhost:5000/api/trips/$TRIP_ID/quote" \
+  -H "Authorization: Bearer $RIDER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"quoteId\":\"$QUOTE_ID\"}" | jq .
+
+curl -fsS -X POST "http://localhost:5000/api/trips/$TRIP_ID/confirm-quote" \
+  -H "Authorization: Bearer $RIDER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"quoteId\":\"$QUOTE_ID\"}" | jq .
 ```
 
 #### API #11: Tra cứu chuyến đi đang hoạt động (`GET /api/trips/active`)
@@ -292,16 +317,16 @@ curl -s -X GET http://localhost:5000/api/trips/$TRIP_ID \
 ```
 
 #### API #13: Tài xế chấp nhận cuốc xe (`PUT /api/trips/{id}/accept`)
-*(Hoặc dùng alias `POST /trips/{id}/driver-accept`)*
+Lấy OFFER_ID từ ReceiveTripOffer và dùng token của Driver nhận offer trước expiresAt.
 ```bash
-curl -s -X PUT http://localhost:5000/api/trips/$TRIP_ID/accept \
+curl -s -X PUT "http://localhost:5000/api/trips/$TRIP_ID/accept?offerId=$OFFER_ID" \
   -H "Authorization: Bearer $DRIVER_TOKEN" | jq .
 ```
 
 #### API #14: Tài xế từ chối cuốc xe (`PUT /api/trips/{id}/reject`)
 *(Nếu tài xế không muốn nhận chuyến, hệ thống tăng biến đếm retry và tìm tài xế khác)*
 ```bash
-curl -s -X PUT http://localhost:5000/api/trips/$TRIP_ID/reject \
+curl -s -X PUT "http://localhost:5000/api/trips/$TRIP_ID/reject?offerId=$OFFER_ID" \
   -H "Authorization: Bearer $DRIVER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -420,28 +445,6 @@ curl -s -X GET http://localhost:5000/api/accounts/22222222-2222-2222-2222-222222
 
 ### 5.6. Endpoint giả lập môi trường Dev (#25)
 
-#### API #25: Bắn giả lập sự kiện `TripRequestedEvent` vào Message Bus (`POST /dev/simulate-trip-requested`)
-*(Chỉ khả dụng trong môi trường Development tại `MatchingService :5248`, dùng để kiểm thử độc lập luồng matching mà không cần gọi qua `TripService`)*
-```bash
-curl -s -X POST http://localhost:5248/dev/simulate-trip-requested \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tripId": "99998888-7777-6666-5555-444433332222",
-    "riderId": "11111111-1111-1111-1111-111111111111",
-    "pickupLatitude": 10.7769,
-    "pickupLongitude": 106.7009,
-    "pickupAddress": "Điểm đón test",
-    "dropoffLatitude": 10.7829,
-    "dropoffLongitude": 106.6989,
-    "dropoffAddress": "Điểm trả test",
-    "distanceKm": 3.0,
-    "estimatedDurationMinutes": 10,
-    "estimatedFare": 45000,
-    "vehicleType": "Bike"
-  }' | jq .
-```
-
----
 
 ### 5.7. Nhóm Kết nối Realtime SignalR Hub (5 Sự kiện)
 

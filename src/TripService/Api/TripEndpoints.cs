@@ -10,12 +10,13 @@ public static class TripEndpoints
     {
         var trips = endpoints.MapGroup("/api/trips").RequireAuthorization();
 
-        trips.MapPost("", CreateTripAsync);
-        trips.MapPost("/{id:guid}/confirm-quote", ConfirmQuoteAsync);
+        trips.MapPost("", CreateTripAsync).RequireAuthorization(policy => policy.RequireRole("Rider"));
+        trips.MapPut("/{id:guid}/quote", AttachQuoteAsync).RequireAuthorization(policy => policy.RequireRole("Rider"));
+        trips.MapPost("/{id:guid}/confirm-quote", ConfirmQuoteAsync).RequireAuthorization(policy => policy.RequireRole("Rider"));
         trips.MapGet("/active", GetActiveTripAsync);
         trips.MapGet("/{id:guid}", GetTripByIdAsync);
-        trips.MapPut("/{id:guid}/accept", AcceptTripAsync);
-        trips.MapPut("/{id:guid}/reject", RejectTripAsync);
+        trips.MapPut("/{id:guid}/accept", AcceptTripAsync).RequireAuthorization(policy => policy.RequireRole("Driver"));
+        trips.MapPut("/{id:guid}/reject", RejectTripAsync).RequireAuthorization(policy => policy.RequireRole("Driver"));
         trips.MapPut("/{id:guid}/start-route", StartRouteAsync);
         trips.MapPut("/{id:guid}/pick-up", PickUpAsync);
         trips.MapPut("/{id:guid}/drop-off", DropOffAsync);
@@ -40,6 +41,7 @@ public static class TripEndpoints
     private static async Task<IResult> ConfirmQuoteAsync(
         Guid id,
         HttpContext httpContext,
+        AttachQuoteRequest? request,
         ITripAppService service,
         CancellationToken ct)
     {
@@ -47,7 +49,21 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.ConfirmQuoteAsync(id, user.Id, ct));
+        return ToResult(await service.ConfirmQuoteAsync(id, user.Id, ct, request?.QuoteId));
+    }
+
+    private static async Task<IResult> AttachQuoteAsync(
+        Guid id,
+        HttpContext httpContext,
+        AttachQuoteRequest request,
+        ITripAppService service,
+        CancellationToken ct)
+    {
+        var user = ReadUserId(httpContext);
+        if (user.Error is not null)
+            return user.Error;
+
+        return ToResult(await service.AttachQuoteAsync(id, user.Id, request.QuoteId, ct));
     }
 
     private static async Task<IResult> GetActiveTripAsync(
@@ -77,6 +93,7 @@ public static class TripEndpoints
 
     private static async Task<IResult> AcceptTripAsync(
         Guid id,
+        Guid? offerId,
         HttpContext httpContext,
         ITripAppService service,
         CancellationToken ct)
@@ -85,11 +102,12 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.AcceptTripAsync(id, user.Id, ct));
+        return ToResult(await service.AcceptTripAsync(id, user.Id, ct, offerId));
     }
 
     private static async Task<IResult> RejectTripAsync(
         Guid id,
+        Guid? offerId,
         HttpContext httpContext,
         TripActionRequest? request,
         ITripAppService service,
@@ -99,7 +117,7 @@ public static class TripEndpoints
         if (user.Error is not null)
             return user.Error;
 
-        return ToResult(await service.RejectTripAsync(id, user.Id, request?.Reason, ct));
+        return ToResult(await service.RejectTripAsync(id, user.Id, request?.Reason, ct, offerId));
     }
 
     private static async Task<IResult> StartRouteAsync(

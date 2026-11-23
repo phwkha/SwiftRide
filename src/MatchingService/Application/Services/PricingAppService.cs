@@ -2,6 +2,7 @@ using MatchingService.Application.DTOs;
 using MatchingService.Domain.Entities;
 using MatchingService.Domain.Interfaces;
 using MatchingService.Domain.Pricing;
+using SwiftRide.Contracts.Common;
 
 namespace MatchingService.Application.Services;
 
@@ -24,9 +25,12 @@ public sealed class PricingAppService(IPricingRepository pricingRepository, Fare
         var surgeZone = await pricingRepository.GetActiveSurgeZoneAsync(request.PickupLatitude, request.PickupLongitude, now, cancellationToken);
         var surgeMultiplier = surgeZone?.SurgeMultiplier ?? 1.0m;
 
-        var distanceKm = CalculateRoadDistanceKm(
-            request.PickupLatitude, request.PickupLongitude,
-            request.DropoffLatitude, request.DropoffLongitude);
+        var pickupLatitude = TripQuoteSnapshot.NormalizeCoordinate(request.PickupLatitude);
+        var pickupLongitude = TripQuoteSnapshot.NormalizeCoordinate(request.PickupLongitude);
+        var dropoffLatitude = TripQuoteSnapshot.NormalizeCoordinate(request.DropoffLatitude);
+        var dropoffLongitude = TripQuoteSnapshot.NormalizeCoordinate(request.DropoffLongitude);
+        var distanceKm = Math.Round(
+            CalculateRoadDistanceKm(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude), 2);
         var durationMinutes = Math.Max(5, (int)Math.Ceiling(distanceKm / 0.4m));
 
         var context = new PricingContext(
@@ -46,6 +50,10 @@ public sealed class PricingAppService(IPricingRepository pricingRepository, Fare
             Id = Guid.NewGuid().ToString(),
             RiderId = riderId,
             VehicleType = request.VehicleType,
+            PickupLatitude = pickupLatitude,
+            PickupLongitude = pickupLongitude,
+            DropoffLatitude = dropoffLatitude,
+            DropoffLongitude = dropoffLongitude,
             DistanceKm = distanceKm,
             EstimatedDurationMinutes = durationMinutes,
             Breakdown = new PricingBreakdown
@@ -76,6 +84,17 @@ public sealed class PricingAppService(IPricingRepository pricingRepository, Fare
                 quote.Breakdown.TaxRate),
             quote.TotalFare,
             quote.ExpiresAt);
+    }
+
+    public async Task<TripQuoteSnapshot?> GetQuoteAsync(Guid id, CancellationToken ct)
+    {
+        var quote = await pricingRepository.GetQuoteAsync(id.ToString("D"), ct);
+        if (quote is null || !Guid.TryParse(quote.RiderId, out var riderId))
+            return null;
+
+        return new TripQuoteSnapshot(id, riderId,
+            quote.PickupLatitude, quote.PickupLongitude, quote.DropoffLatitude, quote.DropoffLongitude,
+            quote.VehicleType, quote.DistanceKm, quote.EstimatedDurationMinutes, quote.TotalFare, quote.ExpiresAt);
     }
 
     public static decimal CalculateRoadDistanceKm(decimal pickupLatitude, decimal pickupLongitude, decimal dropoffLatitude, decimal dropoffLongitude)

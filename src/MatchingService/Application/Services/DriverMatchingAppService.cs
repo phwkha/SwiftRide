@@ -1,10 +1,8 @@
 using System.Diagnostics;
 using SwiftRide.Contracts;
 using MatchingService.Application.DTOs;
-using MatchingService.Domain.Entities;
 using MatchingService.Domain.Interfaces;
 using MassTransit;
-using StackExchange.Redis;
 using SwiftRide.Contracts.Events;
 
 namespace MatchingService.Application.Services;
@@ -12,12 +10,8 @@ namespace MatchingService.Application.Services;
 public sealed class DriverMatchingAppService(
     IDriverRepository driverRepository,
     IPublishEndpoint publishEndpoint,
-    IConnectionMultiplexer? redisConnection = null,
     ILogger<DriverMatchingAppService>? logger = null)
 {
-    private static readonly TimeSpan OfferCountdown = TimeSpan.FromSeconds(15);
-    private readonly IConnectionMultiplexer? _redisConnection = redisConnection;
-
     public async Task<IReadOnlyList<NearbyDriverDto>> FindNearbyDriversAsync(FindNearbyDriversRequest request, CancellationToken cancellationToken = default)
     {
         PricingAppService.ValidateCoordinates(request.PickupLatitude, request.PickupLongitude, "pickup");
@@ -131,131 +125,70 @@ public sealed class DriverMatchingAppService(
     }
 
     public async Task MatchTripAsync(
-        Guid tripId,
-        decimal pickupLatitude,
-        decimal pickupLongitude,
-        string pickupAddress,
-        decimal dropoffLatitude,
-        decimal dropoffLongitude,
-        string dropoffAddress,
-        string vehicleType,
-        decimal distanceKm,
-        int durationMinutes,
-        decimal estimatedFare,
-        IEnumerable<Guid>? excludedDriverIds,
+        Guid tripId, decimal pickupLatitude, decimal pickupLongitude, string vehicleType,
+        IEnumerable<Guid> excludedDriverIds, int attempt, DateTimeOffset deadline,
         CancellationToken cancellationToken = default)
     {
-        if (await IsTripCancelledAsync(tripId, cancellationToken))
-        {
-            logger?.LogInformation("Matching skipped for cancelled trip {TripId}.", tripId);
+        // Older messages have no deadline and cannot participate in the new offer lifecycle.
+        if (deadline == default || attempt < 1)
             return;
-        }
 
         var started = Stopwatch.GetTimestamp();
         var outcome = "failure";
+        var tripKey = tripId.ToString("D");
         try
         {
             PricingAppService.ValidateCoordinates(pickupLatitude, pickupLongitude, "pickup");
-            PricingAppService.ValidateCoordinates(dropoffLatitude, dropoffLongitude, "dropoff");
             PricingAppService.ValidateVehicleType(vehicleType);
 
-            var excludedIds = (excludedDriverIds ?? []).Select(id => id.ToString()).ToHashSet();
-            var tripKey = tripId.ToString();
-            var reservations = await driverRepository.GetDriversReservedForTripAsync(tripKey, cancellationToken);
-            foreach (var reservation in reservations)
+            // The retry and release are on separate queues. Close earlier attempts before selecting a driver.
+            await CloseMatchingAttemptsAsync(tripId, attempt - 1, cancellationToken);
+            if (await IsAttemptClosedAsync(tripKey, attempt, cancellationToken) || deadline <= DateTimeOffset.UtcNow)
             {
-                if (!excludedIds.Contains(reservation.DriverId))
-                {
-                    outcome = "duplicate";
-                    logger?.LogInformation("Matching skipped for trip {TripId} with existing reservation for driver {DriverId}.", tripId, reservation.DriverId);
-                    return;
-                }
-
-                // The retry command and rejection event are on separate queues.
-                // Release the rejected reservation here even when the retry arrives first.
-                await ReleaseDriverAsync(Guid.Parse(reservation.DriverId), tripId, cancellationToken);
-                logger?.LogInformation("Matching retry released rejected driver {DriverId} for trip {TripId}.", reservation.DriverId, tripId);
+                outcome = "stale";
+                return;
             }
 
-            var driver = await driverRepository.ReserveNearestDriverAsync(
-                pickupLatitude,
-                pickupLongitude,
-                vehicleType,
-                excludedIds,
-                tripKey,
-                cancellationToken);
+            var driver = await driverRepository.GetReservedDriverAsync(tripKey, cancellationToken);
+            if (driver is null)
+            {
+                var excluded = excludedDriverIds.Select(id => id.ToString("D"));
+                driver = await driverRepository.ReserveNearestDriverAsync(
+                    pickupLatitude, pickupLongitude, vehicleType, excluded, tripKey, attempt, cancellationToken)
+                    ?? await driverRepository.GetReservedDriverAsync(tripKey, cancellationToken);
+            }
+
+            if (await IsAttemptClosedAsync(tripKey, attempt, cancellationToken))
+            {
+                outcome = "stale";
+                return;
+            }
 
             if (driver is null)
             {
-                if (await IsTripCancelledAsync(tripId, cancellationToken))
-                {
-                    return;
-                }
-
-                if ((await driverRepository.GetDriversReservedForTripAsync(tripId.ToString(), cancellationToken)) is { Count: > 0 })
-                {
-                    outcome = "duplicate";
-                    return;
-                }
-                logger?.LogInformation("No matching driver available for trip {TripId}.", tripId);
-                await publishEndpoint.Publish(new MatchingFailedEvent(tripId, "Không tìm thấy tài xế khả dụng quanh khu vực"), cancellationToken);
+                await publishEndpoint.Publish(new MatchingFailedEvent(
+                    tripId, "Không tìm thấy tài xế khả dụng quanh khu vực", attempt), cancellationToken);
                 return;
             }
 
-            if (await IsTripCancelledAsync(tripId, cancellationToken))
+            var reservedAttempt = driver.ReservedAttempt.GetValueOrDefault();
+            if (reservedAttempt < attempt)
+                throw new InvalidOperationException("A concurrent delivery reserved a driver for an older matching attempt.");
+            if (reservedAttempt > attempt)
             {
-                await ReleaseTripReservationAsync(tripId, CancellationToken.None);
+                outcome = "stale";
                 return;
             }
 
-            var now = DateTimeOffset.UtcNow;
-            var driverId = Guid.Parse(driver.DriverId);
-
-            try
-            {
-                if (!await TryLockDriverForTripAsync(driverId, tripId))
-                {
-                    await driverRepository.ReleaseDriverAsync(driver.DriverId, tripKey, CancellationToken.None);
-                    logger?.LogWarning("Matching driver {DriverId} is already locked for another trip while matching {TripId}.", driverId, tripId);
-                    await publishEndpoint.Publish(new MatchingFailedEvent(tripId, "Không tìm thấy tài xế khả dụng quanh khu vực"), cancellationToken);
-                    return;
-                }
-
-                await publishEndpoint.Publish(new TripOfferDispatchedEvent(
-                    tripId,
-                    driverId,
-                    pickupAddress,
-                    pickupLatitude,
-                    pickupLongitude,
-                    dropoffAddress,
-                    dropoffLatitude,
-                    dropoffLongitude,
-                    estimatedFare,
-                    distanceKm,
-                    durationMinutes,
-                    (int)OfferCountdown.TotalSeconds,
-                    now.Add(OfferCountdown)), cancellationToken);
-
-                outcome = "success";
-                logger?.LogInformation("Published matching offer for trip {TripId}, driver {DriverId}, expiring at {ExpiresAt}.", tripId, driverId, now.Add(OfferCountdown));
-                if (await IsTripCancelledAsync(tripId, cancellationToken))
-                {
-                    outcome = "cancelled";
-                    await PublishOfferExpiredAsync(tripId, driverId, cancellationToken);
-                    await ReleaseTripReservationAsync(tripId, CancellationToken.None);
-                    await ReleaseDriverLockAsync(driverId, tripId);
-                }
-            }
-            catch
-            {
-                await ReleaseDriverAsync(driverId, tripId, CancellationToken.None);
-                throw;
-            }
+            // Republish the proposal on redelivery in case the previous delivery stopped after reserving.
+            // The TripService row version allows a single committed offer for this attempt.
+            await publishEndpoint.Publish(
+                new TripOfferProposedEvent(tripId, Guid.Parse(driver.DriverId), attempt), cancellationToken);
+            outcome = "success";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            outcome = "failure";
-            logger?.LogError(ex, "Matching failed while processing trip {TripId}.", tripId);
+            logger?.LogError(ex, "Matching failed while processing trip {TripId}, attempt {Attempt}.", tripId, attempt);
             throw;
         }
         finally
@@ -265,77 +198,20 @@ public sealed class DriverMatchingAppService(
         }
     }
 
-    public async Task<bool> TryLockDriverForTripAsync(Guid driverId, Guid tripId)
+    public async Task CloseMatchingAttemptsAsync(Guid tripId, int attempt, CancellationToken ct)
     {
-        if (_redisConnection is null) return true;
-        var db = _redisConnection.GetDatabase();
-        var lockKey = $"matching:lock:driver:{driverId}";
-
-        // SET NX (When.NotExists): Chỉ khóa thành công nếu tài xế chưa bị khóa bởi cuốc xe khác
-        return await db.StringSetAsync(
-            lockKey,
-            tripId.ToString(),
-            TimeSpan.FromSeconds(15),
-            When.NotExists);
+        var tripKey = tripId.ToString("D");
+        await driverRepository.RecordClosedAttemptsAsync(tripKey, attempt, ct);
+        await driverRepository.ReleaseReservationsThroughAsync(tripKey, attempt, ct);
     }
 
-    private async Task ReleaseDriverLockAsync(Guid driverId, Guid tripId)
+    private async Task<bool> IsAttemptClosedAsync(string tripId, int attempt, CancellationToken ct)
     {
-        if (_redisConnection is null) return;
-        var db = _redisConnection.GetDatabase();
-        var lockKey = $"matching:lock:driver:{driverId}";
-        await db.LockReleaseAsync(lockKey, tripId.ToString());
+        if (await driverRepository.GetClosedThroughAttemptAsync(tripId, ct) < attempt)
+            return false;
+
+        // Covers a reservation created concurrently with closure or left before a consumer restarted.
+        await driverRepository.ReleaseReservationsThroughAsync(tripId, attempt, ct);
+        return true;
     }
-
-    public async Task ReleaseDriverAsync(Guid driverId, Guid tripId, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            await ReleaseDriverLockAsync(driverId, tripId);
-        }
-        finally
-        {
-            await driverRepository.ReleaseDriverAsync(driverId.ToString(), tripId.ToString(), cancellationToken);
-        }
-    }
-
-    public Task ReleaseTripReservationAsync(Guid tripId, CancellationToken cancellationToken = default)
-        => driverRepository.ReleaseTripReservationAsync(tripId.ToString(), cancellationToken);
-
-    public async Task CancelTripAsync(Guid tripId, Guid? driverId, CancellationToken cancellationToken = default)
-    {
-        var cancellation = new CancelledTrip
-        {
-            TripId = tripId.ToString(),
-            ExpiresAt = DateTime.UtcNow.AddDays(7)
-        };
-        await driverRepository.UpsertCancelledTripAsync(cancellation, cancellationToken);
-
-        var reservedDrivers = await driverRepository.GetDriversReservedForTripAsync(cancellation.TripId, cancellationToken);
-        try
-        {
-            foreach (var driver in reservedDrivers)
-            {
-                if (Guid.TryParse(driver.DriverId, out var reservedDriverId))
-                {
-                    await PublishOfferExpiredAsync(tripId, reservedDriverId, cancellationToken);
-                    await ReleaseDriverLockAsync(reservedDriverId, tripId);
-                }
-            }
-        }
-        finally
-        {
-            await ReleaseTripReservationAsync(tripId, cancellationToken);
-            if (driverId is Guid assignedDriverId)
-            {
-                await ReleaseDriverAsync(assignedDriverId, tripId, cancellationToken);
-            }
-        }
-    }
-
-    private Task PublishOfferExpiredAsync(Guid tripId, Guid driverId, CancellationToken cancellationToken)
-        => publishEndpoint.Publish(new TripOfferExpiredEvent(tripId, driverId, "Chuyến đi đã bị hủy"), cancellationToken);
-
-    private Task<bool> IsTripCancelledAsync(Guid tripId, CancellationToken cancellationToken)
-        => driverRepository.IsTripCancelledAsync(tripId.ToString(), cancellationToken);
 }

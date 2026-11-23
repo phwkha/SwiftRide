@@ -106,6 +106,7 @@ services:
       Jwt__Issuer: "${SWIFTRIDE_JWT_ISSUER:-SwiftRide.Gateway}"
       Jwt__Audience: "${SWIFTRIDE_JWT_AUDIENCE:-SwiftRide.Client}"
       ConnectionStrings__TripDbConnection: "Server=sqlserver,1433;Database=TripDB;User Id=sa;Password=${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in the environment};TrustServerCertificate=True;MultipleActiveResultSets=true"
+      Downstream__MatchingService: "http://matching-service:8080"
       ConnectionStrings__RabbitMq: "amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in the environment}@rabbitmq:5672"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
     ports:

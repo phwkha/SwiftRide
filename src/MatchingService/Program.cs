@@ -2,7 +2,6 @@ using SwiftRide.Security;
 using MassTransit;
 using MatchingService.Api;
 using MatchingService.Application.Consumers;
-using MatchingService.Application.DTOs;
 using MatchingService.Application.Services;
 using MatchingService.Domain.Interfaces;
 using MatchingService.Domain.Pricing;
@@ -12,8 +11,6 @@ using Microsoft.Extensions.Caching.Distributed;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using StackExchange.Redis;
-using SwiftRide.Contracts.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSwiftRideAuthentication(builder.Configuration);
@@ -48,7 +45,7 @@ builder.Services.AddOpenTelemetry()
 // Add services to the container.
 builder.Services.AddOpenApi();
 
-// Register Redis Distributed Cache and Connection Multiplexer
+// Register Redis Distributed Cache
 var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
 
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -56,9 +53,6 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.Configuration = redisConn;
     options.InstanceName = "SwiftRide_";
 });
-
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-    ConnectionMultiplexer.Connect(redisConn));
 
 // Register MongoDB Context
 builder.Services.AddSingleton<MongoDbContext>();
@@ -89,6 +83,7 @@ builder.Services.AddMassTransit(x =>
         var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
             ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
         cfg.Host(new Uri(rabbitMqConnection));
+        cfg.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(1)));
         cfg.ConfigureEndpoints(context);
     });
 });
@@ -115,16 +110,6 @@ app.UseAuthorization();
 
 app.MapGet("/", () => Results.Ok(new { Service = "MatchingService", Status = "Running" }));
 app.MapMatchingEndpoints();
-
-if (app.Environment.IsDevelopment())
-{
-    app.MapPost("/dev/simulate-trip-requested", async (TripRequestedEvent request, IPublishEndpoint publishEndpoint, HttpContext http, CancellationToken ct) =>
-    {
-        await publishEndpoint.Publish(request, ct);
-        return Results.Accepted(value: ApiResponse<OperationResponse>.Success(
-            new OperationResponse("Published"), "TripRequestedEvent published", http.TraceIdentifier));
-    }).WithName("SimulateTripRequested");
-}
 
 app.Run();
 

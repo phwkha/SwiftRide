@@ -15,7 +15,7 @@ public class OutboxPublisherService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<OutboxPublisherService> _logger;
-    private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(5);
+    private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(1);
     private const int BatchSize = 20;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -111,6 +111,9 @@ public class OutboxPublisherService : BackgroundService
         {
             nameof(TripRequestedEvent) => typeof(TripRequestedEvent),
             nameof(TripAcceptedEvent) => typeof(TripAcceptedEvent),
+            nameof(TripOfferDispatchedEvent) => typeof(TripOfferDispatchedEvent),
+            nameof(TripOfferExpiredEvent) => typeof(TripOfferExpiredEvent),
+            nameof(MatchingAttemptClosedEvent) => typeof(MatchingAttemptClosedEvent),
             nameof(DriverRejectedOfferEvent) => typeof(DriverRejectedOfferEvent),
             nameof(RetryMatchingCommand) => typeof(RetryMatchingCommand),
             nameof(TripDroppedOffEvent) => typeof(TripDroppedOffEvent),

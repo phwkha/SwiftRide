@@ -13,15 +13,10 @@ public sealed class TripRequestedConsumer(DriverMatchingAppService matchingServi
             message.TripId,
             message.PickupLatitude,
             message.PickupLongitude,
-            message.PickupAddress,
-            message.DropoffLatitude,
-            message.DropoffLongitude,
-            message.DropoffAddress,
             message.VehicleType,
-            message.DistanceKm,
-            message.EstimatedDurationMinutes,
-            message.EstimatedFare,
             message.ExcludedDriverIds,
+            1,
+            message.Deadline,
             context.CancellationToken);
     }
 }

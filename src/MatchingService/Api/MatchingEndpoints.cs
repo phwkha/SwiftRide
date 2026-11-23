@@ -8,6 +8,19 @@ public static class MatchingEndpoints
 {
     public static IEndpointRouteBuilder MapMatchingEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet("/internal/quotes/{id:guid}", async (Guid id, HttpContext http, PricingAppService service, CancellationToken ct) =>
+        {
+            var riderId = http.User.AuthenticatedUserId();
+            if (riderId is null)
+                return Results.Unauthorized();
+
+            var quote = await service.GetQuoteAsync(id, ct);
+            if (quote is null)
+                return Results.NotFound();
+
+            return quote.RiderId == riderId ? Results.Ok(quote) : Results.Forbid();
+        }).RequireAuthorization(policy => policy.RequireRole("Rider"));
+
         var group = endpoints.MapGroup("/api").RequireAuthorization();
 
         group.MapPost("/matching/quote", async (TripQuoteRequest request, HttpContext http, PricingAppService service, CancellationToken ct) =>
@@ -29,7 +42,7 @@ public static class MatchingEndpoints
             {
                 return Results.NotFound(ApiResponse<TripQuoteResponse>.Fail(404, "PRICING_NOT_FOUND", ex.Message, "vehicleType", http.TraceIdentifier));
             }
-        }).WithName("CreateTripQuote");
+        }).RequireAuthorization(policy => policy.RequireRole("Rider")).WithName("CreateTripQuote");
 
         group.MapPost("/matching/find-drivers", async (FindNearbyDriversRequest request, HttpContext http, DriverMatchingAppService service, CancellationToken ct) =>
         {

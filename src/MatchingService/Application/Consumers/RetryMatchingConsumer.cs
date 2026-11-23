@@ -13,15 +13,10 @@ public sealed class RetryMatchingConsumer(DriverMatchingAppService matchingServi
             message.TripId,
             message.PickupLatitude,
             message.PickupLongitude,
-            message.PickupAddress,
-            message.DropoffLatitude,
-            message.DropoffLongitude,
-            message.DropoffAddress,
             message.VehicleType,
-            message.DistanceKm,
-            message.EstimatedDurationMinutes,
-            message.EstimatedFare,
             message.ExcludedDriverIds,
+            message.Attempt,
+            message.Deadline,
             context.CancellationToken);
     }
 }

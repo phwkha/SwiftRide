@@ -168,11 +168,12 @@ var app = builder.Build();
 await KafkaMessaging.EnsureTopicsAsync(kafkaBootstrapServers);
 
 // Khởi tạo database và thêm dữ liệu mẫu
-using (var scope = app.Services.CreateScope())
+await DatabaseStartup.RunAsync(redisConn, "TripService", async ct =>
 {
+    await using var scope = app.Services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<TripDbContext>();
-    await TripDbSeeder.SeedAsync(dbContext);
-}
+    await TripDbSeeder.SeedAsync(dbContext, ct);
+}, app.Logger);
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

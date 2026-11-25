@@ -51,6 +51,8 @@ docker compose up -d --build --remove-orphans
 docker compose ps
 ```
 
+Để kiểm thử với nhiều instance, dùng [lệnh scale trong README](../README.md#chạy-nhiều-replica-backend). Chạy các request qua Gateway ở cổng `5000`. Kiểm tra log Gateway để xác nhận request đến cả hai replica và chạy một chuyến Wallet từ tạo chuyến đến `Completed` để kiểm tra SignalR và quyết toán.
+
 ### Cách B: Chạy kết hợp Docker (Databases & Kafka) + `dotnet run` (Dành cho Dev / Debug)
 
 ```bash

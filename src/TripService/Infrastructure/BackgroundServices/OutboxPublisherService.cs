@@ -1,4 +1,6 @@
+using System.Data;
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using SwiftRide.Contracts.Events;
 using SwiftRide.Messaging;
@@ -56,6 +58,22 @@ public class OutboxPublisherService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<TripDbContext>();
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(stoppingToken);
+
+        var result = new SqlParameter("@result", SqlDbType.Int) { Direction = ParameterDirection.Output };
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            EXEC @result = sp_getapplock
+                @Resource = N'SwiftRide.TripOutbox',
+                @LockMode = N'Exclusive',
+                @LockOwner = N'Transaction',
+                @LockTimeout = 0;
+            """, [result], stoppingToken);
+
+        var lockResult = (int)result.Value;
+        if (lockResult == -1)
+            return;
+        if (lockResult < 0)
+            throw new InvalidOperationException($"SQL Server could not lock the trip outbox (result {lockResult}).");
 
         var messages = await dbContext.OutboxMessages
             .Where(m => m.ProcessedAt == null)
@@ -84,6 +102,7 @@ public class OutboxPublisherService : BackgroundService
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
+        await transaction.CommitAsync(stoppingToken);
     }
 
     private async Task PublishMessageAsync(IServiceProvider services, OutboxMessage message, CancellationToken cancellationToken)

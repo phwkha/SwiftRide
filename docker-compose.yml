@@ -110,7 +110,6 @@ services:
     build:
       context: .
       dockerfile: src/TripService/Dockerfile
-    container_name: swiftride-trip-service
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
@@ -121,8 +120,6 @@ services:
       Downstream__MatchingService: "http://matching-service:8080"
       Kafka__BootstrapServers: "kafka:29092"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
-    ports:
-      - "5105:8080"
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -136,7 +133,6 @@ services:
     build:
       context: .
       dockerfile: src/MatchingService/Dockerfile
-    container_name: swiftride-matching-service
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
@@ -146,8 +142,6 @@ services:
       ConnectionStrings__MongoDbConnection: "mongodb://mongodb:27017"
       Kafka__BootstrapServers: "kafka:29092"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
-    ports:
-      - "5248:8080"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -161,7 +155,6 @@ services:
     build:
       context: .
       dockerfile: src/PaymentService/Dockerfile
-    container_name: swiftride-payment-service
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
@@ -172,8 +165,6 @@ services:
       Kafka__BootstrapServers: "kafka:29092"
       Downstream__TripService: "http://trip-service:8080"
       ConnectionStrings__Redis: "redis:6379,abortConnect=false"
-    ports:
-      - "5114:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -196,6 +187,7 @@ services:
       Jwt__Audience: "${SWIFTRIDE_JWT_AUDIENCE:-SwiftRide.Client}"
       Jwt__Secret: "${SWIFTRIDE_JWT_SECRET:?Set SWIFTRIDE_JWT_SECRET in the environment}"
       ReverseProxy__Clusters__trip-cluster__Destinations__destination1__Address: "http://trip-service:8080"
+      ReverseProxy__Clusters__trip-hub-cluster__Destinations__destination1__Address: "http://trip-service:8080"
       ReverseProxy__Clusters__matching-cluster__Destinations__destination1__Address: "http://matching-service:8080"
       ReverseProxy__Clusters__payment-cluster__Destinations__destination1__Address: "http://payment-service:8080"
       Downstream__TripService: "http://trip-service:8080"

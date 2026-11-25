@@ -95,6 +95,24 @@ docker compose ps
 
 Khi chạy backend bằng `dotnet run`, đặt `Kafka__BootstrapServers=localhost:9092`. [Hướng dẫn kiểm thử API](docs/API_TESTING_GUIDE.md)
 
+#### Chạy nhiều replica backend
+
+```bash
+docker compose up -d --build \
+  --scale trip-service=2 \
+  --scale matching-service=2 \
+  --scale payment-service=2
+docker compose ps
+```
+
+Client vẫn truy cập Gateway tại `http://localhost:5000`. YARP lấy danh sách replica từ DNS nội bộ của Docker và cập nhật mỗi 5 giây. Các kết nối SignalR sử dụng cookie `SwiftRide.TripHub` để duy trì cùng một replica trong quá trình kết nối.
+
+Các replica của cùng backend dùng chung cơ sở dữ liệu, Redis và consumer group Kafka. Số replica có thể cùng đọc một topic trong một group phụ thuộc vào số partition của topic đó.
+
+#### Cấu hình từng topic Kafka
+
+Mỗi topic có một mục trong [kafka-topics.json](src/Shared.Messaging/kafka-topics.json). Chỉnh `numPartitions` và `replicationFactor` cho cấu trúc của topic khi tạo mới. Các thuộc tính trong `configs` là cấu hình Kafka của riêng topic đó, ví dụ `retention.ms` tính bằng mili giây. Backend đồng bộ các thuộc tính đã khai báo khi khởi động, kể cả với topic đã tồn tại.
+
 ### Bước 3: Restore dependencies và Build mã nguồn
 
 ```bash
@@ -116,6 +134,8 @@ dotnet build SwiftRide.slnx
 | **Kafka**               | `localhost:9092`        | PLAINTEXT (local)              | Kafka KRaft cho phát triển |
 
 ### Microservices (.NET Apps)
+
+Khi chạy Compose, gọi API qua Gateway. Các cổng backend dưới đây dùng khi chạy bằng IDE hoặc `dotnet run`.
 
 | Dịch vụ             | URL HTTP (Local)        | Swagger / OpenAPI                       |
 | :------------------ | :---------------------- | :-------------------------------------- |

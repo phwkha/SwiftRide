@@ -15,6 +15,7 @@ public class PaymentOutboxPublisherService : BackgroundService
     private readonly ILogger<PaymentOutboxPublisherService> _logger;
     private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(3);
     private const int BatchSize = 20;
+    private const long OutboxLockKey = 0x53574946544F5554;
 
     public PaymentOutboxPublisherService(
         IServiceScopeFactory scopeFactory,
@@ -49,6 +50,13 @@ public class PaymentOutboxPublisherService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(stoppingToken);
+
+        var acquired = await dbContext.Database
+            .SqlQuery<bool>($"""SELECT pg_try_advisory_xact_lock({OutboxLockKey}) AS "Value" """)
+            .SingleAsync(stoppingToken);
+        if (!acquired)
+            return;
 
         var messages = await dbContext.OutboxMessages
             .Where(m => m.ProcessedAt == null)
@@ -78,6 +86,7 @@ public class PaymentOutboxPublisherService : BackgroundService
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
+        await transaction.CommitAsync(stoppingToken);
     }
 
     private static Task PublishMessageAsync(IServiceProvider services, OutboxMessage message, CancellationToken cancellationToken)

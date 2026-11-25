@@ -108,11 +108,12 @@ var app = builder.Build();
 await KafkaMessaging.EnsureTopicsAsync(kafkaBootstrapServers);
 
 // Tao schema PayDB va seed vi mau
-using (var scope = app.Services.CreateScope())
+await DatabaseStartup.RunAsync(redisConn, "PaymentService", async ct =>
 {
+    await using var scope = app.Services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-    await PaymentDbSeeder.SeedAsync(dbContext);
-}
+    await PaymentDbSeeder.SeedAsync(dbContext, ct);
+}, app.Logger);
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();

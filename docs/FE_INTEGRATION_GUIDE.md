@@ -1457,6 +1457,7 @@ Không gọi accept rồi reject/cancel như các bước bắt buộc của cù
 
 - Hub URL server: `https://kha-dev.impala-tritone.ts.net/hubs/trips`; local: `http://localhost:5000/hubs/trips`.
 - Dùng client SignalR với `accessTokenFactory` trả accessToken hiện tại. Client xử lý negotiate/transport; không gửi raw WebSocket JSON theo kiểu REST.
+- Khi Trip chạy nhiều replica, client dùng `negotiate` cần gửi lại cookie `SwiftRide.TripHub` do Gateway cấp trong các request tiếp theo của kết nối.
 - Đăng ký handler nhận event trước khi kết nối/join phòng.
 - Các lời gọi hub dưới đây nhận **một chuỗi GUID**, không nhận object `{driverId:...}` hoặc `{tripId:...}`.
 - Hub method không trả ApiResponse hay Trip. Promise invoke hoàn tất nghĩa là lời gọi hub đã xử lý; nếu lỗi thì promise reject.

@@ -162,7 +162,8 @@ builder.Services.AddRateLimiter(options =>
 
 // 4. YARP Reverse Proxy
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .AddDnsDestinationResolver(options => options.RefreshPeriod = TimeSpan.FromSeconds(5));
 
 // 5. Auth services (Singleton for InMemory store)
 builder.Services.AddSingleton<InMemoryIdentityStore>();

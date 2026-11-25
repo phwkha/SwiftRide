@@ -108,12 +108,13 @@ var app = builder.Build();
 await KafkaMessaging.EnsureTopicsAsync(kafkaBootstrapServers);
 
 // Initialize MongoDB indexes
-using (var scope = app.Services.CreateScope())
+await DatabaseStartup.RunAsync(redisConn, "MatchingService", async ct =>
 {
+    await using var scope = app.Services.CreateAsyncScope();
     var mongoContext = scope.ServiceProvider.GetRequiredService<MongoDbContext>();
-    await mongoContext.InitializeIndexesAsync();
-    await scope.ServiceProvider.GetRequiredService<MongoDbSeeder>().SeedAsync();
-}
+    await mongoContext.InitializeIndexesAsync(ct);
+    await scope.ServiceProvider.GetRequiredService<MongoDbSeeder>().SeedAsync(ct);
+}, app.Logger);
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

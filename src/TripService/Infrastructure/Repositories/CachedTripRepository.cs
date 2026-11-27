@@ -61,6 +61,9 @@ public sealed class CachedTripRepository : ITripReader, ITripWriter
     public Task<Trip?> GetActiveTripByUserAsync(Guid userId, CancellationToken ct = default)
         => _innerRepo.GetActiveTripByUserAsync(userId, ct);
 
+    public Task<Trip?> GetCurrentByIdAsync(Guid id, CancellationToken ct = default)
+        => _innerRepo.GetCurrentByIdAsync(id, ct);
+
     public async Task AddAsync(
         Trip trip,
         TripStatusHistory history,
@@ -91,13 +94,13 @@ public sealed class CachedTripRepository : ITripReader, ITripWriter
         await InvalidateCacheAsync(trip.Id, ct);
     }
 
-    public async Task UpdateWithHistoriesAndOutboxAsync(
+    public async Task UpdateWithHistoriesAndOutboxesAsync(
         Trip trip,
         IReadOnlyCollection<TripStatusHistory> histories,
-        OutboxMessage outbox,
+        IReadOnlyCollection<OutboxMessage> outboxes,
         CancellationToken ct = default)
     {
-        await _innerRepo.UpdateWithHistoriesAndOutboxAsync(trip, histories, outbox, ct);
+        await _innerRepo.UpdateWithHistoriesAndOutboxesAsync(trip, histories, outboxes, ct);
         await InvalidateCacheAsync(trip.Id, ct);
     }
 

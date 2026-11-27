@@ -36,10 +36,12 @@ public sealed record CreateTripRequest(
     decimal DropoffLatitude,
     decimal DropoffLongitude,
     string DropoffAddress,
-    decimal DistanceKm,
-    int EstimatedDurationMinutes,
-    decimal EstimatedFare,
+    decimal DistanceKm = 0,
+    int EstimatedDurationMinutes = 0,
+    decimal EstimatedFare = 0,
     string VehicleType = "Bike");
+
+public sealed record AttachQuoteRequest(Guid QuoteId);
 
 public sealed record TripActionRequest(
     string? Reason = null,

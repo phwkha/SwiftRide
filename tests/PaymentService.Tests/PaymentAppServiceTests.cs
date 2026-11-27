@@ -70,6 +70,19 @@ public class PaymentAppServiceTests
     }
 
     [Fact]
+    public async Task ProcessPayment_ReusedKeyWithDifferentBody_DoesNotLeakOriginalOrChargeAgain()
+    {
+        await using var db = await CreateSeededDbAsync();
+        var service = CreateService(db);
+        await service.ProcessPaymentAsync(WalletRequest(Guid.NewGuid()), "key-collision");
+        var ex = await Assert.ThrowsAsync<PaymentException>(() =>
+            service.ProcessPaymentAsync(WalletRequest(Guid.NewGuid(), 1m), "key-collision"));
+        Assert.Equal(ErrorCodes.PaymentDuplicate, ex.Code);
+        Assert.Single(await db.Transactions.ToListAsync());
+        Assert.Equal(435000m, await BalanceAsync(db, Rider1Id, AccountType.WalletLiability));
+    }
+
+    [Fact]
     public async Task ProcessPayment_DifferentKeySameTrip_ThrowsPaymentDuplicate()
     {
         await using var db = await CreateSeededDbAsync();

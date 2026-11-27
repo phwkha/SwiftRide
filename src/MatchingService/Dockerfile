@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15 AS base
 WORKDIR /app
 EXPOSE 8080
 ENV ASPNETCORE_HTTP_PORTS=8080
@@ -6,9 +6,13 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY ["src/Shared.Contracts/Shared.Contracts.csproj", "src/Shared.Contracts/"]
+COPY ["src/Shared.Security/Shared.Security.csproj", "src/Shared.Security/"]
 COPY ["src/MatchingService/MatchingService.csproj", "src/MatchingService/"]
+COPY ["src/Shared.Messaging/Shared.Messaging.csproj", "src/Shared.Messaging/"]
 RUN dotnet restore "src/MatchingService/MatchingService.csproj"
 COPY ["src/Shared.Contracts/", "src/Shared.Contracts/"]
+COPY ["src/Shared.Security/", "src/Shared.Security/"]
+COPY ["src/Shared.Messaging/", "src/Shared.Messaging/"]
 COPY ["src/MatchingService/", "src/MatchingService/"]
 WORKDIR "/src/src/MatchingService"
 RUN dotnet build "MatchingService.csproj" -c Release -o /app/build

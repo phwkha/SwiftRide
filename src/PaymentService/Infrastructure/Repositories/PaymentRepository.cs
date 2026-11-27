@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PaymentService.Domain.Entities;
 using PaymentService.Domain.Enums;
+using PaymentService.Domain.Exceptions;
 using PaymentService.Domain.Interfaces;
 using PaymentService.Infrastructure.Data;
 
@@ -38,9 +39,6 @@ public sealed class PaymentRepository(PaymentDbContext db) : IPaymentRepository
             .OrderBy(a => a.AccountType)
             .FirstOrDefaultAsync(ct);
 
-    public Task<Dictionary<Guid, Account>> GetAccountsByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
-        => db.Accounts.Where(a => ids.Contains(a.Id)).ToDictionaryAsync(a => a.Id, ct);
-
     public Task<PaymentToken?> ResolveTokenAsync(Guid riderId, string provider, Guid? tokenId, CancellationToken ct = default)
     {
         var query = db.PaymentTokens.Where(t => t.UserId == riderId && t.Provider == provider);
@@ -65,4 +63,54 @@ public sealed class PaymentRepository(PaymentDbContext db) : IPaymentRepository
     public void AddOutboxMessage(OutboxMessage message) => db.OutboxMessages.Add(message);
     public void ClearTracking() => db.ChangeTracker.Clear();
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
+
+    public async Task SaveLedgerChangesAsync(
+        IReadOnlyCollection<LedgerEntry> entries, Guid? walletToDebit, CancellationToken ct)
+    {
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
+
+        var updatedAt = DateTimeOffset.UtcNow;
+        // Use the same account lock order for settlement and refund.
+        foreach (var group in entries.GroupBy(entry => entry.AccountId).OrderBy(group => group.Key))
+        {
+            var accountId = group.Key;
+            var debits = group.Where(entry => entry.EntryType == EntryType.Debit).Sum(entry => entry.Amount);
+            var credits = group.Where(entry => entry.EntryType == EntryType.Credit).Sum(entry => entry.Amount);
+            var delta = credits - debits;
+            var checkFunds = accountId == walletToDebit;
+
+            if (transaction is null)
+            {
+                var account = await db.Accounts.FindAsync([accountId], ct) ?? throw AccountNotFound(accountId);
+                if (checkFunds && account.Balance < debits)
+                    throw InsufficientFunds();
+                account.Balance += delta;
+                account.UpdatedAt = updatedAt;
+                continue;
+            }
+
+            var accounts = db.Accounts.Where(account => account.Id == accountId);
+            if (checkFunds)
+                accounts = accounts.Where(account => account.Balance >= debits);
+
+            var updated = await accounts.ExecuteUpdateAsync(setters => setters
+                .SetProperty(account => account.Balance, account => account.Balance + delta)
+                .SetProperty(account => account.UpdatedAt, updatedAt), ct);
+            if (updated == 0)
+                throw checkFunds ? InsufficientFunds() : AccountNotFound(accountId);
+        }
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
+    }
+
+    private static PaymentException InsufficientFunds()
+        => new(ErrorCodes.InsufficientBalance, 422,
+            "So du trong vi khong du de thanh toan. Vui long nap them tien.");
+
+    private static PaymentException AccountNotFound(Guid accountId)
+        => new(ErrorCodes.NotFound, 404, $"Khong tim thay tai khoan {accountId}.");
 }

@@ -1,25 +1,35 @@
 using MatchingService.Application.DTOs;
 using MatchingService.Application.Services;
+using SwiftRide.Security;
 
 namespace MatchingService.Api;
 
 public static class MatchingEndpoints
 {
-    private const string FallbackRiderId = "11111111-1111-1111-1111-111111111111";
-
     public static IEndpointRouteBuilder MapMatchingEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api");
+        endpoints.MapGet("/internal/quotes/{id:guid}", async (Guid id, HttpContext http, PricingAppService service, CancellationToken ct) =>
+        {
+            var riderId = http.User.AuthenticatedUserId();
+            if (riderId is null)
+                return Results.Unauthorized();
+
+            var quote = await service.GetQuoteAsync(id, ct);
+            if (quote is null)
+                return Results.NotFound();
+
+            return quote.RiderId == riderId ? Results.Ok(quote) : Results.Forbid();
+        }).RequireAuthorization(policy => policy.RequireRole("Rider"));
+
+        var group = endpoints.MapGroup("/api").RequireAuthorization();
 
         group.MapPost("/matching/quote", async (TripQuoteRequest request, HttpContext http, PricingAppService service, CancellationToken ct) =>
         {
             try
             {
-                var riderId = http.Request.Headers["X-User-Id"].FirstOrDefault();
-                if (string.IsNullOrWhiteSpace(riderId))
-                {
-                    riderId = FallbackRiderId;
-                }
+                var riderId = http.User.AuthenticatedUserId()?.ToString();
+                if (riderId is null)
+                    return Results.Unauthorized();
 
                 var response = await service.CreateQuoteAsync(request, riderId, ct);
                 return Results.Ok(ApiResponse<TripQuoteResponse>.Success(response, "Quote generated successfully", http.TraceIdentifier));
@@ -32,7 +42,7 @@ public static class MatchingEndpoints
             {
                 return Results.NotFound(ApiResponse<TripQuoteResponse>.Fail(404, "PRICING_NOT_FOUND", ex.Message, "vehicleType", http.TraceIdentifier));
             }
-        }).WithName("CreateTripQuote");
+        }).RequireAuthorization(policy => policy.RequireRole("Rider")).WithName("CreateTripQuote");
 
         group.MapPost("/matching/find-drivers", async (FindNearbyDriversRequest request, HttpContext http, DriverMatchingAppService service, CancellationToken ct) =>
         {
@@ -90,6 +100,10 @@ public static class MatchingEndpoints
             {
                 return Results.BadRequest(ApiResponse<OperationResponse>.Fail(400, "INVALID_DRIVER_ID", "driver id phải là GUID.", "id", http.TraceIdentifier));
             }
+
+            var accessError = DriverRequestAuthorization.RequireDriver(http, driverId);
+            if (accessError is not null)
+                return accessError;
 
             try
             {

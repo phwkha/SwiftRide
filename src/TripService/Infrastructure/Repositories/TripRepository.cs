@@ -22,10 +22,10 @@ public class TripRepository : ITripReader, ITripWriter
     public virtual async Task<Trip?> GetByIdAsync(
         Guid id,
         CancellationToken ct = default)
-    {
-        return await _context.Trips
-            .FirstOrDefaultAsync(t => t.Id == id, ct);
-    }
+        => await _context.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct);
+
+    public Task<Trip?> GetCurrentByIdAsync(Guid id, CancellationToken ct = default)
+        => GetByIdAsync(id, ct);
 
     public virtual async Task<Trip?> GetActiveTripByUserAsync(
         Guid userId,
@@ -41,7 +41,7 @@ public class TripRepository : ITripReader, ITripWriter
             TripStatus.PaymentPending
         };
 
-        return await _context.Trips
+        return await _context.Trips.AsNoTracking()
         .Where(t =>
             (t.RiderId == userId || t.DriverId == userId) &&
             activeStatuses.Contains(t.Status))
@@ -84,7 +84,7 @@ public class TripRepository : ITripReader, ITripWriter
             await _context.OutboxMessages.AddAsync(outbox, ct);
         }
 
-        await _context.SaveChangesAsync(ct);
+        await SaveTripChangesAsync(ct);
     }
 
     public virtual Task UpdateWithOutboxesAsync(
@@ -97,18 +97,32 @@ public class TripRepository : ITripReader, ITripWriter
         _context.Trips.Update(trip);
         _context.TripStatusHistories.Add(history);
         _context.OutboxMessages.AddRange(outboxes);
-        return _context.SaveChangesAsync(ct);
+        return SaveTripChangesAsync(ct);
     }
 
-    public virtual async Task UpdateWithHistoriesAndOutboxAsync(
+    public virtual async Task UpdateWithHistoriesAndOutboxesAsync(
         Trip trip,
         IReadOnlyCollection<TripStatusHistory> histories,
-        OutboxMessage outbox,
+        IReadOnlyCollection<OutboxMessage> outboxes,
         CancellationToken ct = default)
     {
         _context.Trips.Update(trip);
         await _context.TripStatusHistories.AddRangeAsync(histories, ct);
-        await _context.OutboxMessages.AddAsync(outbox, ct);
+        await _context.OutboxMessages.AddRangeAsync(outboxes, ct);
         await _context.SaveChangesAsync(ct);
+    }
+
+    private async Task SaveTripChangesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A retried consumer must load a clean copy of the trip and its pending changes.
+            _context.ChangeTracker.Clear();
+            throw;
+        }
     }
 }

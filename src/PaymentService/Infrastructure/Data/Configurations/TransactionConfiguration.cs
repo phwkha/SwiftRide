@@ -42,6 +42,7 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
             .HasColumnName("status")
             .HasConversion<string>()
             .HasMaxLength(50)
+            .IsConcurrencyToken()
             .IsRequired();
 
         builder.Property(t => t.Description)

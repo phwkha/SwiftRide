@@ -14,7 +14,8 @@ public record TripRequestedEvent(
     decimal DistanceKm,
     int EstimatedDurationMinutes,
     decimal EstimatedFare,
-    List<Guid> ExcludedDriverIds);
+    List<Guid> ExcludedDriverIds,
+    DateTimeOffset Deadline = default);
 
 // 2. TripService -> MatchingService (khi tài xế từ chối nhưng số lần thử <= k ở SD 11)
 public record RetryMatchingCommand(
@@ -30,9 +31,14 @@ public record RetryMatchingCommand(
     int EstimatedDurationMinutes,
     decimal EstimatedFare,
     int Attempt,
-    List<Guid> ExcludedDriverIds);
+    List<Guid> ExcludedDriverIds,
+    DateTimeOffset Deadline = default);
 
-// 3. MatchingService -> TripHub (mời tài xế nhận cuốc trong 15s ở SD 11)
+// MatchingService proposes a reserved driver. TripService commits the offer before notifying the driver.
+public record TripOfferProposedEvent(Guid TripId, Guid DriverId, int Attempt);
+public record MatchingAttemptClosedEvent(Guid TripId, int Attempt);
+
+// 3. TripService -> TripHub (mời tài xế nhận cuốc trong 15s ở SD 11)
 public record TripOfferDispatchedEvent(
     Guid TripId,
     Guid DriverId,
@@ -46,16 +52,17 @@ public record TripOfferDispatchedEvent(
     decimal DistanceKm,
     int DurationMinutes,
     int CountdownSeconds,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    Guid OfferId = default);
 
-// 4. MatchingService -> TripHub (hết 15s tài xế không phản hồi ở SD 11)
-public record TripOfferExpiredEvent(Guid TripId, Guid DriverId, string Message);
+// 4. TripService -> TripHub (hết 15s tài xế không phản hồi ở SD 11)
+public record TripOfferExpiredEvent(Guid TripId, Guid DriverId, string Message, Guid OfferId = default);
 
 // 5. TripService -> MatchingService (tài xế bấm từ chối để mở lại is_available = true)
 public record DriverRejectedOfferEvent(Guid TripId, Guid DriverId, string? Reason);
 
 // 6. MatchingService -> TripService (không tìm thấy tài xế quanh khu vực ở SD 11)
-public record MatchingFailedEvent(Guid TripId, string Reason);
+public record MatchingFailedEvent(Guid TripId, string Reason, int Attempt = 0);
 
 // 7. TripService -> MatchingService (tài xế nhận cuốc thành công ở SD 05)
 public record TripAcceptedEvent(Guid TripId, Guid DriverId, Guid RiderId);
@@ -93,6 +100,10 @@ public record PaymentFailedEvent(Guid TripId, string Status, string Reason);
 // 12. TripService -> MatchingService (hủy chuyến hoặc hoàn tất để giải phóng tài xế)
 public record TripCancelledEvent(Guid TripId, Guid? DriverId, Guid RiderId, string Reason);
 public record TripCompletedEvent(Guid TripId, Guid RiderId, Guid DriverId, decimal TotalAmount, Guid TransactionId);
+
+// TripService -> TripHub only after the state change is committed.
+public record TripStatusChangedEvent(
+    Guid TripId, string NewStatus, Guid? DriverId, DateTimeOffset Timestamp, string? CancellationReason = null);
 
 // 13. PaymentService -> All (hoàn tiền thành công ở SD 14)
 public record PaymentRefundedEvent(

@@ -27,4 +27,7 @@ public sealed class PricingRepository(MongoDbContext mongoContext) : IPricingRep
 
     public Task SaveQuoteAsync(TripQuote quote, CancellationToken ct = default)
         => mongoContext.TripQuotes.InsertOneAsync(quote, cancellationToken: ct);
+
+    public async Task<TripQuote?> GetQuoteAsync(string id, CancellationToken ct = default)
+        => await mongoContext.TripQuotes.Find(quote => quote.Id == id).FirstOrDefaultAsync(ct);
 }

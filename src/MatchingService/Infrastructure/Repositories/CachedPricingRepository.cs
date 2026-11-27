@@ -107,4 +107,12 @@ public sealed class CachedPricingRepository : IPricingRepository
             },
             ct);
     }
+
+    public async Task<TripQuote?> GetQuoteAsync(string id, CancellationToken ct = default)
+    {
+        var cached = await _cache.GetStringAsync($"{QuoteKeyPrefix}{id}", ct);
+        return cached is null
+            ? await _innerRepository.GetQuoteAsync(id, ct)
+            : JsonSerializer.Deserialize<TripQuote>(cached);
+    }
 }

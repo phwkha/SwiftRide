@@ -1,4 +1,5 @@
 using MassTransit;
+using TripService.Domain.Entities;
 using TripService.Domain.Enums;
 using TripService.Domain.Interfaces;
 using TripService.Domain.States;
@@ -45,16 +46,15 @@ public sealed class PaymentFailedConsumer : IConsumer<PaymentFailedEvent>
         trip.Status = TripState.FromStatus(trip.Status).RequestPayment().Status;
         trip.UpdatedAt = now;
 
+        var history = new TripStatusHistory
+        {
+            TripId = trip.Id,
+            FromStatus = previousStatus,
+            ToStatus = trip.Status,
+            Reason = $"{context.Message.Status}: {context.Message.Reason}",
+            ChangedAt = now
+        };
         await _tripWriter.UpdateWithOutboxAsync(
-            trip,
-            new()
-            {
-                TripId = trip.Id,
-                FromStatus = previousStatus,
-                ToStatus = trip.Status,
-                Reason = $"{context.Message.Status}: {context.Message.Reason}",
-                ChangedAt = now
-            },
-            ct: context.CancellationToken);
+            trip, history, TripStatusOutbox.Create(trip, history), context.CancellationToken);
     }
 }

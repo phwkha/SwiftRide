@@ -31,6 +31,9 @@ public class Driver
     [BsonElement("reserved_trip_id")]
     public string? ReservedTripId { get; set; }
 
+    [BsonElement("reserved_attempt")]
+    public int? ReservedAttempt { get; set; }
+
     [BsonElement("rating")]
     public double Rating { get; set; } = 5.0;
 

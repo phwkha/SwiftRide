@@ -63,9 +63,9 @@ public record ApiResponse<T>(
 }
 ```
 
-### 2.2. Bộ 12 Integration Event Records cho MassTransit RabbitMQ
+### 2.2. Bộ 12 Integration Event Records cho Kafka Rider
 
-Mọi thành viên bắt buộc đặt các record này trong cùng namespace `SwiftRide.Contracts.Events` (MassTransit dựa vào `Namespace + Tên Type` để định tuyến Exchange/Queue giữa các microservices):
+Mọi thành viên bắt buộc đặt các record này trong cùng namespace `SwiftRide.Contracts.Events` (producer và consumer dùng chung tên topic trong `KafkaTopics`):
 
 ```csharp
 namespace SwiftRide.Contracts.Events;

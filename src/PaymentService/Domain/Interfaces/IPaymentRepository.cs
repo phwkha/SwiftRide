@@ -12,7 +12,6 @@ public interface IPaymentRepository
     Task<Transaction?> GetTransactionWithEntriesAsync(Guid transactionId, CancellationToken ct = default);
     Task<Account?> GetAccountAsync(Guid ownerId, AccountType type, CancellationToken ct = default);
     Task<Account?> GetPrimaryAccountByOwnerAsync(Guid ownerId, CancellationToken ct = default);
-    Task<Dictionary<Guid, Account>> GetAccountsByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
     Task<PaymentToken?> ResolveTokenAsync(Guid riderId, string provider, Guid? tokenId, CancellationToken ct = default);
     Task<List<PaymentToken>> GetUserTokensAsync(Guid userId, bool asNoTracking = false, CancellationToken ct = default);
     void AddPaymentToken(PaymentToken token);
@@ -21,4 +20,5 @@ public interface IPaymentRepository
     void AddOutboxMessage(OutboxMessage message);
     void ClearTracking();
     Task SaveChangesAsync(CancellationToken ct = default);
+    Task SaveLedgerChangesAsync(IReadOnlyCollection<LedgerEntry> entries, Guid? walletToDebit, CancellationToken ct);
 }

@@ -15,6 +15,18 @@ public class TripQuote
     [BsonElement("vehicle_type")]
     public string VehicleType { get; set; } = "Bike";
 
+    [BsonElement("pickup_latitude")]
+    public decimal? PickupLatitude { get; set; }
+
+    [BsonElement("pickup_longitude")]
+    public decimal? PickupLongitude { get; set; }
+
+    [BsonElement("dropoff_latitude")]
+    public decimal? DropoffLatitude { get; set; }
+
+    [BsonElement("dropoff_longitude")]
+    public decimal? DropoffLongitude { get; set; }
+
     [BsonElement("distance_km")]
     public decimal DistanceKm { get; set; }
 

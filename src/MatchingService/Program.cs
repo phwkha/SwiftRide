@@ -1,7 +1,9 @@
+using SwiftRide.Contracts.Events;
+using SwiftRide.Messaging;
+using SwiftRide.Security;
 using MassTransit;
 using MatchingService.Api;
 using MatchingService.Application.Consumers;
-using MatchingService.Application.DTOs;
 using MatchingService.Application.Services;
 using MatchingService.Domain.Interfaces;
 using MatchingService.Domain.Pricing;
@@ -11,16 +13,11 @@ using Microsoft.Extensions.Caching.Distributed;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using StackExchange.Redis;
-using SwiftRide.Contracts.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSwiftRideAuthentication(builder.Configuration);
 
-foreach (var requiredConnection in new[] { "RabbitMq" })
-{
-    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(requiredConnection)))
-        throw new InvalidOperationException($"Missing configuration: ConnectionStrings:{requiredConnection}");
-}
+var kafkaBootstrapServers = builder.Configuration.GetBootstrapServers();
 
 // OpenTelemetry Observability
 builder.Services.AddOpenTelemetry()
@@ -46,7 +43,7 @@ builder.Services.AddOpenTelemetry()
 // Add services to the container.
 builder.Services.AddOpenApi();
 
-// Register Redis Distributed Cache and Connection Multiplexer
+// Register Redis Distributed Cache
 var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
 
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -54,9 +51,6 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.Configuration = redisConn;
     options.InstanceName = "SwiftRide_";
 });
-
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-    ConnectionMultiplexer.Connect(redisConn));
 
 // Register MongoDB Context
 builder.Services.AddSingleton<MongoDbContext>();
@@ -76,30 +70,51 @@ builder.Services.AddScoped<IDriverRepository, DriverRepository>();
 builder.Services.AddScoped<PricingAppService>();
 builder.Services.AddScoped<DriverMatchingAppService>();
 
-// Register MassTransit with RabbitMQ
-builder.Services.AddMassTransit(x =>
+builder.Services.AddSwiftRideKafka(rider =>
 {
-    x.AddConsumer<TripRequestedConsumer>();
-    x.AddConsumer<RetryMatchingConsumer>();
-    x.AddConsumer<DriverAvailabilityConsumer>();
-    x.UsingRabbitMq((context, cfg) =>
+    rider.AddConsumer<TripRequestedConsumer>();
+    rider.AddConsumer<RetryMatchingConsumer>();
+    rider.AddConsumer<DriverAvailabilityConsumer>();
+
+    rider.AddKafkaProducer<DriverLocationUpdatedEvent>(KafkaTopics.DriverLocationUpdated);
+    rider.AddKafkaProducer<MatchingFailedEvent>(KafkaTopics.MatchingFailed);
+    rider.AddKafkaProducer<TripOfferProposedEvent>(KafkaTopics.TripOfferProposed);
+
+    rider.UsingKafka((context, kafka) =>
     {
-        var rabbitMqConnection = builder.Configuration.GetConnectionString("RabbitMq")
-            ?? throw new InvalidOperationException("Missing configuration: ConnectionStrings:RabbitMq");
-        cfg.Host(new Uri(rabbitMqConnection));
-        cfg.ConfigureEndpoints(context);
+        kafka.Host(kafkaBootstrapServers);
+
+        const string group = "swiftride-matching";
+
+        kafka.AddKafkaConsumerEndpoint<TripRequestedEvent, TripRequestedConsumer>(
+            context, KafkaTopics.TripRequested, group, RetryMatching);
+        kafka.AddKafkaConsumerEndpoint<RetryMatchingCommand, RetryMatchingConsumer>(
+            context, KafkaTopics.MatchingRetry, group, RetryMatching);
+        kafka.AddKafkaConsumerEndpoint<MatchingAttemptClosedEvent, DriverAvailabilityConsumer>(
+            context, KafkaTopics.MatchingAttemptClosed, group, RetryMatching);
+        kafka.AddKafkaConsumerEndpoint<DriverRejectedOfferEvent, DriverAvailabilityConsumer>(
+            context, KafkaTopics.DriverRejectedOffer, group, RetryMatching);
+        kafka.AddKafkaConsumerEndpoint<TripCancelledEvent, DriverAvailabilityConsumer>(
+            context, KafkaTopics.TripCancelled, group, RetryMatching);
+        kafka.AddKafkaConsumerEndpoint<TripCompletedEvent, DriverAvailabilityConsumer>(
+            context, KafkaTopics.TripCompleted, group, RetryMatching);
     });
 });
 
+static void RetryMatching(IRetryConfigurator retry)
+    => retry.Interval(3, TimeSpan.FromSeconds(1));
+
 var app = builder.Build();
+await KafkaMessaging.EnsureTopicsAsync(kafkaBootstrapServers);
 
 // Initialize MongoDB indexes
-using (var scope = app.Services.CreateScope())
+await DatabaseStartup.RunAsync(redisConn, "MatchingService", async ct =>
 {
+    await using var scope = app.Services.CreateAsyncScope();
     var mongoContext = scope.ServiceProvider.GetRequiredService<MongoDbContext>();
-    await mongoContext.InitializeIndexesAsync();
-    await scope.ServiceProvider.GetRequiredService<MongoDbSeeder>().SeedAsync();
-}
+    await mongoContext.InitializeIndexesAsync(ct);
+    await scope.ServiceProvider.GetRequiredService<MongoDbSeeder>().SeedAsync(ct);
+}, app.Logger);
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -108,19 +123,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/", () => Results.Ok(new { Service = "MatchingService", Status = "Running" }));
 app.MapMatchingEndpoints();
-
-if (app.Environment.IsDevelopment())
-{
-    app.MapPost("/dev/simulate-trip-requested", async (TripRequestedEvent request, IPublishEndpoint publishEndpoint, HttpContext http, CancellationToken ct) =>
-    {
-        await publishEndpoint.Publish(request, ct);
-        return Results.Accepted(value: ApiResponse<OperationResponse>.Success(
-            new OperationResponse("Published"), "TripRequestedEvent published", http.TraceIdentifier));
-    }).WithName("SimulateTripRequested");
-}
 
 app.Run();
 

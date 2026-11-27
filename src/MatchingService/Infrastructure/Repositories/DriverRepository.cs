@@ -78,82 +78,74 @@ public sealed class DriverRepository(MongoDbContext mongoContext) : IDriverRepos
         string vehicleType,
         IEnumerable<string> excludedDriverIds,
         string tripId,
+        int attempt,
         CancellationToken ct = default)
     {
         var pickupPoint = GeoJson.Point(GeoJson.Geographic((double)pickupLongitude, (double)pickupLatitude));
-        var filter = Builders<Driver>.Filter.And(
-            Builders<Driver>.Filter.Eq(driver => driver.IsActive, true),
-            Builders<Driver>.Filter.Eq(driver => driver.IsAvailable, true),
-            Builders<Driver>.Filter.Eq(driver => driver.Vehicle.Type, vehicleType),
-            Builders<Driver>.Filter.Eq(driver => driver.ReservedTripId, null),
-            Builders<Driver>.Filter.Nin(driver => driver.DriverId, excludedDriverIds),
-            Builders<Driver>.Filter.NearSphere(driver => driver.Location, pickupPoint));
+        var available = Builders<Driver>.Filter.Where(driver =>
+            driver.IsActive && driver.IsAvailable && driver.Vehicle.Type == vehicleType && driver.ReservedTripId == null);
+        var nearby = available &
+            Builders<Driver>.Filter.Nin(driver => driver.DriverId, excludedDriverIds) &
+            Builders<Driver>.Filter.NearSphere(driver => driver.Location, pickupPoint);
 
-        var update = Builders<Driver>.Update
-            .Set(driver => driver.IsAvailable, false)
+        var reservation = Builders<Driver>.Update
             .Set(driver => driver.ReservedTripId, tripId)
-            .Set(driver => driver.LastLocationUpdatedAt, DateTime.UtcNow);
+            .Set(driver => driver.ReservedAttempt, attempt);
 
+        using var candidates = await mongoContext.Drivers.Find(nearby).Project(driver => driver.DriverId).ToCursorAsync(ct);
         try
         {
-            return await mongoContext.Drivers.FindOneAndUpdateAsync(
-                filter,
-                update,
-                new FindOneAndUpdateOptions<Driver> { ReturnDocument = ReturnDocument.After },
-                ct);
+            while (await candidates.MoveNextAsync(ct))
+            {
+                foreach (var driverId in candidates.Current)
+                {
+                    var reserved = await mongoContext.Drivers.FindOneAndUpdateAsync(
+                        available & Builders<Driver>.Filter.Eq(driver => driver.DriverId, driverId),
+                        reservation, new FindOneAndUpdateOptions<Driver> { ReturnDocument = ReturnDocument.After }, ct);
+                    if (reserved is not null)
+                        return reserved;
+                }
+            }
         }
         catch (MongoCommandException ex) when (ex.Code == 11000)
         {
-            return null; // Another delivery already reserved a driver for this trip.
+            // The unique trip index allows concurrent deliveries to share one reservation.
+            return null;
         }
+
+        return null;
     }
 
-    public async Task ReleaseDriverAsync(string driverId, string tripId, CancellationToken ct = default)
+    public async Task<Driver?> GetReservedDriverAsync(string tripId, CancellationToken ct = default)
+        => await mongoContext.Drivers.Find(driver => driver.ReservedTripId == tripId).FirstOrDefaultAsync(ct);
+
+    public async Task ReleaseReservationsThroughAsync(string tripId, int attempt, CancellationToken ct = default)
     {
-        var update = Builders<Driver>.Update
-            .Set(driver => driver.IsAvailable, true)
+        var release = Builders<Driver>.Update
             .Set(driver => driver.ReservedTripId, null)
-            .Set(driver => driver.LastLocationUpdatedAt, DateTime.UtcNow);
+            .Set(driver => driver.ReservedAttempt, null);
 
-        await mongoContext.Drivers.UpdateOneAsync(
-            driver => driver.DriverId == driverId && driver.ReservedTripId == tripId,
-            update,
-            cancellationToken: ct);
-    }
-
-    public async Task ReleaseTripReservationAsync(string tripId, CancellationToken ct = default)
-    {
-        var update = Builders<Driver>.Update
-            .Set(driver => driver.IsAvailable, true)
-            .Set(driver => driver.ReservedTripId, null)
-            .Set(driver => driver.LastLocationUpdatedAt, DateTime.UtcNow);
-
+        // Older reservations set IsAvailable=false on acquisition. New reservations preserve the driver's setting.
         await mongoContext.Drivers.UpdateManyAsync(
-            driver => driver.ReservedTripId == tripId,
-            update,
-            cancellationToken: ct);
+            driver => driver.ReservedTripId == tripId && driver.ReservedAttempt == null,
+            release.Set(driver => driver.IsAvailable, true), cancellationToken: ct);
+        await mongoContext.Drivers.UpdateManyAsync(
+            driver => driver.ReservedTripId == tripId && driver.ReservedAttempt <= attempt,
+            release, cancellationToken: ct);
     }
 
-    public async Task<IReadOnlyList<Driver>> GetDriversReservedForTripAsync(string tripId, CancellationToken ct = default)
+    public async Task RecordClosedAttemptsAsync(string tripId, int attempt, CancellationToken ct = default)
     {
-        return await mongoContext.Drivers
-            .Find(driver => driver.ReservedTripId == tripId)
-            .ToListAsync(ct);
+        var update = Builders<MatchingClosure>.Update
+            .Max(trip => trip.ClosedThroughAttempt, attempt)
+            .Max(trip => trip.ExpiresAt, DateTime.UtcNow.AddDays(7));
+        await mongoContext.MatchingClosures.UpdateOneAsync(
+            trip => trip.TripId == tripId, update, new UpdateOptions { IsUpsert = true }, ct);
     }
 
-    public async Task UpsertCancelledTripAsync(CancelledTrip cancelledTrip, CancellationToken ct = default)
+    public async Task<int> GetClosedThroughAttemptAsync(string tripId, CancellationToken ct = default)
     {
-        await mongoContext.CancelledTrips.ReplaceOneAsync(
-            record => record.TripId == cancelledTrip.TripId,
-            cancelledTrip,
-            new ReplaceOptions { IsUpsert = true },
-            ct);
-    }
-
-    public async Task<bool> IsTripCancelledAsync(string tripId, CancellationToken ct = default)
-    {
-        return await mongoContext.CancelledTrips
-            .Find(record => record.TripId == tripId)
-            .AnyAsync(ct);
+        var closure = await mongoContext.MatchingClosures.Find(trip => trip.TripId == tripId).FirstOrDefaultAsync(ct);
+        return closure?.ClosedThroughAttempt ?? -1;
     }
 }

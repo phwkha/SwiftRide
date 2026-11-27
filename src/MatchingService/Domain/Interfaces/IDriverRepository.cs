@@ -22,10 +22,10 @@ public interface IDriverRepository
         string vehicleType,
         IEnumerable<string> excludedDriverIds,
         string tripId,
+        int attempt,
         CancellationToken ct = default);
-    Task ReleaseDriverAsync(string driverId, string tripId, CancellationToken ct = default);
-    Task ReleaseTripReservationAsync(string tripId, CancellationToken ct = default);
-    Task<IReadOnlyList<Driver>> GetDriversReservedForTripAsync(string tripId, CancellationToken ct = default);
-    Task UpsertCancelledTripAsync(CancelledTrip cancelledTrip, CancellationToken ct = default);
-    Task<bool> IsTripCancelledAsync(string tripId, CancellationToken ct = default);
+    Task<Driver?> GetReservedDriverAsync(string tripId, CancellationToken ct = default);
+    Task ReleaseReservationsThroughAsync(string tripId, int attempt, CancellationToken ct = default);
+    Task RecordClosedAttemptsAsync(string tripId, int attempt, CancellationToken ct = default);
+    Task<int> GetClosedThroughAttemptAsync(string tripId, CancellationToken ct = default);
 }

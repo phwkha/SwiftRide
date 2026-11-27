@@ -16,6 +16,10 @@ public static class TripAggregationEndpoints
         {
             var client = httpClientFactory.CreateClient("DownstreamAggregator");
 
+            // Forward JWT so downstream services can authenticate independently.
+            if (httpContext.Request.Headers.TryGetValue("Authorization", out var authorization))
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authorization.ToString());
+
             // Forward user and correlation headers downstream
             if (httpContext.Request.Headers.TryGetValue("X-User-Id", out var userId))
                 client.DefaultRequestHeaders.TryAddWithoutValidation("X-User-Id", userId.ToString());

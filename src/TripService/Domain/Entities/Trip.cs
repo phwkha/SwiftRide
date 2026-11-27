@@ -26,9 +26,15 @@ public class Trip
     public decimal EstimatedFare { get; set; }
     public decimal? ActualFare { get; set; }
     public bool FareConfirmed { get; set; } = false;
+    public DateTimeOffset? FareConfirmedAt { get; set; }
     public string VehicleType { get; set; } = "Bike";
     public int DriverRejectionCount { get; set; } = 0;
     public string? ExcludedDriverIds { get; set; }
+    public int MatchingAttempt { get; set; }
+    public DateTimeOffset? MatchingDeadline { get; set; }
+    public Guid? OfferId { get; set; }
+    public Guid? OfferedDriverId { get; set; }
+    public DateTimeOffset? OfferExpiresAt { get; set; }
 
     // Timestamps
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

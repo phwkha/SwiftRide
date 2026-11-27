@@ -35,12 +35,12 @@
 | D3 | Quy ước số dư | Thống nhất cho mọi loại tài khoản: `Debit` ⇒ `balance -= amount`, `Credit` ⇒ `balance += amount` | Khớp đúng SD 12/SD 14 hiện tại; một hàm `ApplyEntry()` duy nhất |
 | D4 | Làm tròn VND | `driverShare = Math.Round(amount * 0.80m, 0, MidpointRounding.ToEven)`; `platformShare = amount - driverShare` | VND không có đơn vị lẻ; phép trừ đảm bảo luôn cân bằng |
 | D5 | Refund ghi bút toán thế nào | **Đảo ngược từng dòng `LedgerEntry` của giao dịch gốc** (Debit↔Credit, cùng `AccountId`, cùng `Amount`) | Không cần đoán lại RiderWallet/Escrow/Driver; luôn cân bằng chính xác |
-| D6 | Retry SD 13 | **Polly v8 `ResiliencePipeline`** chỉ bọc lệnh gọi cổng thanh toán (3 lần, 2s/4s/8s, jitter), chỉ retry `TransientGatewayException` | Retry của MassTransit chạy lại cả consumer và cuối cùng đẩy vào `_error` queue thay vì ghi `PaymentPending` |
+| D6 | Retry SD 13 | **Polly v8 `ResiliencePipeline`** chỉ bọc lệnh gọi cổng thanh toán (3 lần, 2s/4s/8s, jitter), chỉ retry `TransientGatewayException` | Retry của MassTransit chạy lại cả consumer và cuối cùng ghi vào topic `swiftride.consumer-failures.v1` thay vì ghi `PaymentPending` |
 | D7 | Lỗi không tạm thời (ví không đủ tiền, token không hợp lệ) | **Không retry**, ghi thẳng `PaymentPending` + `PaymentFailedEvent` | Khách có thể nạp tiền / đổi nguồn tiền rồi bấm "Thanh toán lại" |
 | D8 | Một chuyến có nhiều lần thử | 1 dòng `transactions` cho mỗi chuyến: lần thử thủ công thành công sẽ **cập nhật** dòng `PaymentPending` cũ sang `Success` | Dễ truy vết; Unique Filtered Index vẫn đúng |
 | D9 | Định danh người gọi | Đọc `X-User-Id`, `X-User-Role` do Gateway bơm vào; Admin mới được refund | Gateway đã xác thực JWT (plan BE Lead) |
 | D10 | Cổng thanh toán ngoài | **Giả lập** (Momo/VNPay/Stripe), cấu hình được tỉ lệ lỗi; token bắt đầu bằng `tok_fail_` luôn timeout | Demo SD 13 chủ động, không phụ thuộc mạng ngoài |
-| D11 | Shared contracts | Ưu tiên dùng `src/Shared.Contracts` của BE Lead; nếu chưa có thì tạo tạm `Contracts/SharedContracts.cs` **đúng namespace `SwiftRide.Contracts.Events`**, xoá khi project chung được merge | MassTransit định tuyến theo `namespace + tên type` |
+| D11 | Shared contracts | Ưu tiên dùng `src/Shared.Contracts` của BE Lead; nếu chưa có thì tạo tạm `Contracts/SharedContracts.cs` **đúng namespace `SwiftRide.Contracts.Events`**, xoá khi project chung được merge | Kafka Rider định tuyến theo topic đã cấu hình |
 
 ---
 
@@ -226,7 +226,7 @@ await tx.CommitAsync(ct);
 - Lấy batch bằng `FOR UPDATE SKIP LOCKED` để chạy nhiều instance không publish trùng.
 - Lỗi publish: ghi `Error`, giữ `ProcessedAt = null` để lần sau thử lại. Consumer phía Trip phải idempotent (at-least-once).
 
-**Xong khi:** RabbitMQ UI (`:15672`) thấy exchange `SwiftRide.Contracts.Events:PaymentSettledEvent` nhận message; dòng outbox có `processed_at`.
+**Xong khi:** topic `swiftride.payment.settled.v1` nhận event; dòng outbox có `processed_at`.
 
 ### Phase 5 — Consumer `TripDroppedOffEvent` & đường lỗi SD 13 (1 ngày)
 ```csharp
@@ -242,14 +242,14 @@ public async Task Consume(ConsumeContext<TripDroppedOffEvent> context)
     {
         await _payments.MarkPendingAsync(m, m.IdempotencyKey, ex.Message, context.CancellationToken);
     }
-    // PAYMENT_DUPLICATE: bỏ qua (đã xử lý). Lỗi DB/hạ tầng khác: ném ra để MassTransit retry message.
+    // PAYMENT_DUPLICATE: bỏ qua (đã xử lý). Lỗi DB/hạ tầng khác: ném ra để Rider ghi nhận lỗi xử lý.
 }
 ```
 - `MarkPendingAsync` (1 DB transaction): upsert `Transaction` `Status = PaymentPending`, `ErrorDetail`; idempotency → `Failed`; outbox `PaymentFailedEvent(tripId, "PaymentPending", reason)`.
 - `Program.cs`: `x.AddConsumer<TripDroppedOffConsumer>()`, `x.SetKebabCaseEndpointNameFormatter()`; thêm `UseMessageRetry(r => r.Interval(3, 5s))` **chỉ cho lỗi hạ tầng** (DB mất kết nối) — lỗi nghiệp vụ đã được xử lý trong consumer.
 - Prefetch nhỏ (`PrefetchCount = 8`) là đủ; trùng lặp đồng thời đã được PK idempotency chặn.
 
-**Xong khi:** publish thủ công `TripDroppedOffEvent` (MassTransit test harness hoặc endpoint dev) → có `PaymentSettledEvent`; dùng token `tok_fail_*` → sau ~14s có `PaymentFailedEvent`, transaction `PaymentPending`, số dư không đổi.
+**Xong khi:** publish thủ công `TripDroppedOffEvent` (Kafka Rider hoặc endpoint dev) → có `PaymentSettledEvent`; dùng token `tok_fail_*` → sau ~14s có `PaymentFailedEvent`, transaction `PaymentPending`, số dư không đổi.
 
 ### Phase 6 — Refund Saga SD 14 (1 ngày)
 `RefundAsync(Guid transactionId, string reason, Guid requestedBy)`:
@@ -302,7 +302,7 @@ public async Task Consume(ConsumeContext<TripDroppedOffEvent> context)
 13. `UPDATE ledger_entries` bị trigger chặn.
 14. Bất biến: `SUM(debit) = SUM(credit)` trên toàn bảng `ledger_entries` sau mọi kịch bản.
 
-**Consumer tests** (MassTransit `ITestHarness`): publish `TripDroppedOffEvent` → assert `Published<PaymentSettledEvent>()`; publish trùng 2 lần → chỉ 1 settlement.
+**Consumer tests** với Kafka: gửi `TripDroppedOffEvent` và kiểm tra topic `swiftride.payment.settled.v1`. Gửi lặp cùng event và kiểm tra chỉ có một lần quyết toán.
 
 ### Phase 10 — Tích hợp end-to-end & demo (0.5 ngày)
 - Chạy đủ `docker compose up -d` + Gateway + Trip + Payment.
@@ -350,7 +350,7 @@ public async Task Consume(ConsumeContext<TripDroppedOffEvent> context)
 - [ ] Mọi thay đổi số dư đi kèm ledger entries cân bằng, trong cùng DB transaction với outbox.
 - [ ] `ledger_entries` append-only ở tầng DB.
 - [ ] Không lưu / log / trả về số thẻ, CVV hay token thô.
-- [ ] Event publish ra RabbitMQ là record có kiểu trong `SwiftRide.Contracts.Events`.
+- [ ] Event publish ra Kafka là record có kiểu trong `SwiftRide.Contracts.Events`.
 - [ ] Toàn bộ test xanh; `dotnet build` không warning mới.
 - [ ] Đã chạy E2E qua Gateway cùng Trip Service (luồng chuẩn + luồng `PaymentPending` + refund).
 
@@ -360,7 +360,7 @@ public async Task Consume(ConsumeContext<TripDroppedOffEvent> context)
 
 | Rủi ro | Ảnh hưởng | Giảm thiểu |
 | :--- | :--- | :--- |
-| Trip vẫn publish `object` ẩn danh | Payment không bao giờ nhận event → chuyến kẹt ở `DroppedOff` | Chốt ở ngày 5; trong lúc chờ dùng MassTransit test harness / endpoint dev để tự publish |
+| Trip vẫn publish `object` ẩn danh | Payment không bao giờ nhận event → chuyến kẹt ở `DroppedOff` | Chốt ở ngày 5; trong lúc chờ dùng Kafka Rider hoặc endpoint dev để tự publish |
 | Thu tiền cổng ngoài thành công nhưng ghi DB lỗi | Khách bị trừ tiền mà hệ thống không ghi nhận | Gọi `RefundAsync` bù ngay + log cảnh báo; gateway giả lập idempotent theo key |
 | Deadlock khi nhiều chuyến cùng ghi ví Sàn | Timeout, retry liên tục | Khoá account theo thứ tự `id` cố định |
 | Tranh chấp nóng trên dòng `PlatformRevenue` | Thông lượng thấp khi tải lớn | Chấp nhận cho phạm vi đồ án; ghi chú hướng mở rộng: tính số dư Sàn từ ledger thay vì cập nhật cột `balance` |

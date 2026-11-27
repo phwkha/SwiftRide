@@ -135,6 +135,7 @@ sequenceDiagram
 | **7** | Driver | `PUT` | `/api/drivers/{id}/location` | Matching (MongoDB) | **F3.2** | **SD 10** | Driver gửi GPS (`lat`, `lng`, `bearing`, `speed`) mỗi 10s |
 | **8** | Driver | `PUT` | `/api/drivers/{id}/availability` | Matching (MongoDB) | **F3.2** | **SD 10** | Driver bật / tắt trạng thái nhận chuyến (`is_available`) |
 | **9** | Trip | `POST` | `/api/trips` (`POST /trips`) | TripService (SQL Server) | **F2.1** | **SD 03** | Khách tạo chuyến mới ở trạng thái `Requested` (`FareConfirmed = false`) |
+| | Trip | `PUT` | `/api/trips/{id}/quote` | TripService | **F2.2** | **SD 04** | Gắn báo giá vào chuyến Requested và kiểm tra Rider, hạn, tuyến và loại xe |
 | **10** | Trip | `POST` | `/api/trips/{id}/confirm-quote` | TripService (SQL Server) | **F2.2** | **SD 04** | Khách xác nhận đồng ý báo giá -> Ghi Outbox `TripRequestedEvent` |
 | **11** | Trip | `GET` | `/api/trips/active` | TripService (SQL Server) | **F1.1, F2.6** | **SD 01, SD 06** | Lấy chuyến đi đang chạy dở của User (F5 khôi phục hành trình) |
 | **12** | Trip | `GET` | `/api/trips/{id}` | TripService (SQL Server) | **F2.4, F2.6** | **SD 06, SD 08** | Tra cứu chi tiết và Fallback Polling trạng thái cuốc xe (mỗi 3s) |
@@ -156,8 +157,8 @@ SignalR Hub được đặt tại `Trip Service (:5105)` và kết nối qua YAR
 
 | STT | Tên Sự Kiện (Event Name) | Chiều Truyền | Group / Kênh Nhận | Trigger Nghiệp Vụ Phát Sinh | Sơ Đồ Trình Tự | Dữ Liệu Payload Chính | Hành Vi & Phản Ứng Phía Frontend Client |
 | :-: | :--- | :-: | :--- | :--- | :-: | :--- | :--- |
-| **1** | `ReceiveTripOffer` | Server -> Client | `driver_{driverId}` | Matching Service quét trúng tài xế phù hợp | **SD 11** | `tripId`, `pickupAddress`, `dropoffAddress`, `estimatedFare`, `countdownSeconds: 15` | **Driver App:** Bật Modal đếm ngược 15s kèm âm thanh cảnh báo, hiển thị nút "Nhận cuốc" và "Từ chối". |
-| **2** | `TripOfferExpired` | Server -> Client | `driver_{driverId}` | Quá hạn 15s mà tài xế không bấm Nhận | **SD 11** | `tripId`, `message: "Cuốc xe đã hết thời gian phản hồi"` | **Driver App:** Tự động đóng popup mời cuốc, đưa app về lại trạng thái chờ cuốc xe mới. |
+| **1** | `ReceiveTripOffer` | Server -> Client | `driver_{driverId}` | TripService lưu offer cho tài xế Matching đã giữ | **SD 11** | `tripId`, `offerId`, `pickupAddress`, `dropoffAddress`, `estimatedFare`, `expiresAt` | **Driver App:** Bật Modal đếm ngược 15s kèm âm thanh cảnh báo, hiển thị nút "Nhận cuốc" và "Từ chối". |
+| **2** | `TripOfferExpired` | Server -> Client | `driver_{driverId}` | Quá hạn 15s mà tài xế không bấm Nhận | **SD 11** | `tripId`, `offerId`, `message` | **Driver App:** Tự động đóng popup mời cuốc, đưa app về lại trạng thái chờ cuốc xe mới. |
 | **3** | `TripStatusChanged` | Server -> Client | `trip_{tripId}` | Trạng thái chuyến đi thay đổi (`DriverAccepted`, `EnRoute`, `PickedUp`, `DroppedOff`, `PaymentPending`, `Paid`, `Completed`, `Cancelled`, `Failed`) | **SD 05, 06, 07, 08, 11, 13** | `tripId`, `newStatus`, `driverInfo`, `cancellationReason`, `timestamp` | **Rider & Driver App:** Chuyển đổi màn hình lập tức theo State Machine (Mục 7). |
 | **4** | `DriverLocationUpdated` | Server -> Client | `trip_{tripId}` | Driver App gửi GPS định kỳ 10s khi đang đi đón / chở khách | **SD 10** | `driverId`, `latitude`, `longitude`, `bearing`, `speed`, `updatedAt` | **Rider App:** Di chuyển mượt mà (smooth animation interpolation) icon xe tài xế trên bản đồ và tính lại ETA. |
 | **5** | `PaymentCompleted` | Server -> Client | `trip_{tripId}` | Payment Service thanh toán qua Sổ cái kép thành công | **SD 08, SD 12** | `tripId`, `transactionId`, `totalAmount`, `paymentMethod`, `netEarnings`, `status: "Success"` | **Rider:** Hiển thị Màn hình Hóa đơn;<br/>**Driver:** Hiển thị Doanh thu cuốc xe thực nhận (+80%). |
@@ -249,9 +250,9 @@ export interface CreateTripRequest {
   dropoffLatitude: number;
   dropoffLongitude: number;
   dropoffAddress: string;
-  distanceKm: number;
-  estimatedDurationMinutes: number;
-  estimatedFare: number;
+  distanceKm?: number;
+  estimatedDurationMinutes?: number;
+  estimatedFare?: number;
 }
 
 export interface ConfirmQuoteRequest {
@@ -395,6 +396,8 @@ export interface AccountDto {
 // ==================== 6. DỮ LIỆU REALTIME SIGNALR HUB (/hubs/trips) ====================
 export interface TripOfferEventPayload {
   tripId: string;
+  driverId: string;
+  offerId: string;
   pickupAddress: string;
   pickupLatitude: number;
   pickupLongitude: number;
@@ -410,6 +413,8 @@ export interface TripOfferEventPayload {
 
 export interface TripOfferExpiredPayload {
   tripId: string;
+  driverId: string;
+  offerId: string;
   message: string;
 }
 
@@ -448,7 +453,7 @@ export interface PaymentCompletedPayload {
 ```mermaid
 flowchart TD
     Login["1. Đăng nhập / F5 khôi phục phiên<br/>POST /api/auth/login<br/>GET /api/auth/me<br/>GET /api/trips/active"] -->|Có chuyến đang chạy| ActiveTrip["4. Màn hình Theo dõi hành trình<br/>SignalR: DriverLocationUpdated & TripStatusChanged<br/>Status: EnRoute -> PickedUp -> DroppedOff"]
-    Login -->|Không có chuyến dở dang| Home["2. Bản đồ Đặt xe & Lấy Báo Giá<br/>POST /api/matching/quote<br/>POST /api/matching/find-drivers<br/>POST /api/trips (Status = Requested)"]
+    Login -->|Không có chuyến dở dang| Home["2. Bản đồ Đặt xe & Lấy Báo Giá<br/>POST /api/trips (Requested)<br/>POST /api/matching/quote<br/>PUT /api/trips/{id}/quote"]
 
     Home --> Confirm["Hiển thị Card Báo Giá & Chọn Nguồn Tiền<br/>GET /api/payment-tokens<br/>Khách bấm Đồng ý giá: POST /api/trips/{id}/confirm-quote<br/>(Hoặc Từ chối giá: PUT /api/trips/{id}/cancel)"]
     Confirm --> Waiting["3. Màn hình Radar Chờ ghép xe<br/>Outbox kích hoạt Matching tìm tài xế (<= k lần)<br/>SignalR: TripStatusChanged"]
@@ -486,7 +491,7 @@ flowchart TD
 | `DriverAccepted` | Card tài xế: Tên, Biển số, Loại xe | Màn hình bản đồ: _"Đang tới điểm đón"_ | Tài xế bấm **[Bắt đầu đi đón]** |
 | `EnRoute` | Xe tài xế di chuyển trên bản đồ tới điểm đón | Điều hướng GPS tới điểm đón | Tài xế bấm **[Đã đón khách]** |
 | `PickedUp` | Bản đồ lộ trình di chuyển về điểm đích | Điều hướng GPS đưa khách về điểm trả | Tài xế bấm **[Đã trả khách]** |
-| `DroppedOff` | Màn hình khóa: _"Đang tự động quyết toán cước..."_ | Màn hình: _"Đang chờ kết toán..."_ | Hệ thống tự động trừ tiền qua RabbitMQ Outbox |
+| `DroppedOff` | Màn hình khóa: _"Đang tự động quyết toán cước..."_ | Màn hình: _"Đang chờ kết toán..."_ | Hệ thống tự động trừ tiền qua Kafka Outbox |
 | `PaymentPending` | Thông báo: _"Thanh toán tạm gián đoạn, vui lòng thử lại"_ | Thông báo: _"Chờ khách xác nhận lại thanh toán"_ | Khách bấm **[Thanh toán lại]** (`POST /api/payments/process`) |
 | `Paid` | Thông báo: _"Đã thanh toán thành công, đang đóng chuyến"_ | Thông báo: _"Đã cộng doanh thu vào ví"_ | Tự động chuyển tiếp sang `Completed` |
 | `Completed` | Màn hình Hóa đơn chi tiết & Cảm ơn | Màn hình Doanh thu cuốc xe (+80%) | Nút **[Về trang chủ]** |
@@ -640,24 +645,24 @@ flowchart TD
 - **Request Body:**
   ```json
   {
-    "quoteId": "6a9e1e3e-4fa0-459f-bb24-9b2f6efc8721",
     "vehicleType": "Bike",
     "pickupLatitude": 10.776889,
     "pickupLongitude": 106.700806,
     "pickupAddress": "Chợ Bến Thành, Quận 1",
     "dropoffLatitude": 10.762887,
     "dropoffLongitude": 106.682145,
-    "dropoffAddress": "280 An Dương Vương, Quận 5",
-    "distanceKm": 4.8,
-    "estimatedDurationMinutes": 14,
-    "estimatedFare": 65000.0
+    "dropoffAddress": "280 An Dương Vương, Quận 5"
   }
   ```
 - **Response (201 Created):** `TripDto` với `status: "Requested"`, `fareConfirmed: false`.
 
+#### Gắn báo giá (`PUT /api/trips/{id}/quote`) - SD 04
+
+Gửi `{"quoteId":"6a9e1e3e-4fa0-459f-bb24-9b2f6efc8721"}` với JWT của Rider sở hữu chuyến. TripService lấy cước, quãng đường và thời gian dự kiến từ Matching/Pricing.
+
 #### 10. Khách xác nhận báo giá (`POST /api/trips/{id}/confirm-quote`) - SD 04
 - **Request Body:** `{"quoteId": "6a9e1e3e-4fa0-459f-bb24-9b2f6efc8721"}`
-- **Response (200 OK):** `TripDto` với `fareConfirmed: true`, kích hoạt Outbox `TripRequestedEvent` để Matching điều phối tìm tài xế.
+- **Response (200 OK):** `TripDto` với `fareConfirmed: true`, lần xác nhận đầu chốt giá và ghi một `TripRequestedEvent` vào outbox. Các lần gửi lại cùng quoteId trả về trạng thái hiện tại.
 
 #### 11. Lấy chuyến đi đang hoạt động của User (`GET /api/trips/active`) - SD 01, SD 06
 - **Response (200 OK):** Trả về `TripDto` đang chạy dở (hoặc `null` nếu không có).
@@ -666,11 +671,11 @@ flowchart TD
 - **Response (200 OK):** `TripDto` hiện hành.
 
 #### 13. Tài xế nhận cuốc xe (`PUT /api/trips/{id}/accept` | Alias: `POST /trips/{id}/driver-accept`) - SD 05
-- **Response (200 OK):** `TripDto` chuyển sang `status: "DriverAccepted"`.
+- Driver gửi `?offerId=<GUID>` từ ReceiveTripOffer. Backend kiểm tra đúng tài xế và thời hạn offer. HTTP 200 trả về chuyến DriverAccepted.
 
 #### 14. Tài xế từ chối cuốc xe (`PUT /api/trips/{id}/reject`) - SD 05, SD 11
 - **Request Body:** `{"reason": "Tài xế đang bận không tiện đường"}`
-- **Response (200 OK):** Tăng `driverRejectionCount += 1`, thêm tài xế vào `ExcludedDriverIds` và tìm tài xế kế tiếp nếu $\le k$ lần.
+- Driver gửi `?offerId=<GUID>` từ ReceiveTripOffer. HTTP 200 đóng offer và tìm tài xế khác trong giới hạn 4 lượt. Chuyến chuyển Failed nếu cạn lượt hoặc không còn tài xế phù hợp.
 
 #### 15. Tài xế bắt đầu đi đón (`PUT /api/trips/{id}/start-route`) - SD 06
 - **Response (200 OK):** `TripDto` chuyển sang `status: "EnRoute"`.

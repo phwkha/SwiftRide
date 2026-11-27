@@ -12,14 +12,14 @@ Hệ thống đặt xe công nghệ (Ride-Hailing Platform) kết nối Rider (k
 
 ## 🏛️ Kiến trúc tổng quan
 
-Hệ thống tuân thủ mô hình **Database-per-Service**, giao tiếp đồng bộ qua REST (thông qua API Gateway) và giao tiếp bất đồng bộ qua **RabbitMQ (MassTransit)**.
+Hệ thống tuân thủ mô hình **Database-per-Service**, giao tiếp đồng bộ qua REST (thông qua API Gateway) và giao tiếp bất đồng bộ qua **Apache Kafka (MassTransit Kafka Rider)**.
 
 ```mermaid
 flowchart TD
     Client["Client (Rider / Driver App)"]
     Gateway["API Gateway (YARP - Port 5000)"]
 
-    Broker[("RabbitMQ\n(Event Bus)")]
+    Broker[("Kafka\n(Event Bus)")]
 
     TripSvc["Trip Service\n(Port 5105)"]
     MatchSvc["Matching & Pricing Service\n(Port 5248)"]
@@ -51,7 +51,7 @@ flowchart TD
 | **TripService**     |      `5105`      | **SQL Server** (`1433`) | Quản lý vòng đời chuyến đi (**State Pattern**), lưu trữ giao dịch cần tính ACID cao.                      |
 | **MatchingService** |      `5248`      |  **MongoDB** (`27017`)  | Tìm tài xế gần nhất (**Geo-spatial index**), tính giá cước linh hoạt (**Strategy Pattern**).              |
 | **PaymentService**  |      `5114`      | **PostgreSQL** (`5432`) | Sổ cái giao dịch kép (**Double-entry Ledger**), hỗ trợ **Idempotency**, thanh toán (**Factory Pattern**). |
-| **RabbitMQ**        | `5672` / `15672` |    _Message Broker_     | Truyền nhận domain events bất đồng bộ (**Pub/Sub** qua MassTransit).                                      |
+| **Kafka**           |      `9092`      |    _Message Broker_     | Truyền nhận event bất đồng bộ qua Kafka Rider.                                      |
 
 ---
 
@@ -80,10 +80,11 @@ cd SwiftRide
 
 ### Bước 2: Khởi động các cơ sở dữ liệu & Message Broker qua Docker
 
-Dự án đã chuẩn bị sẵn file `docker-compose.yml` cấu hình đầy đủ **SQL Server, MongoDB, PostgreSQL, RabbitMQ**:
+Dự án đã chuẩn bị sẵn file `docker-compose.yml` cấu hình đầy đủ **SQL Server, MongoDB, PostgreSQL, Redis và Kafka**. Ba backend tạo các topic Kafka còn thiếu khi khởi động.
 
 ```bash
-docker compose up -d
+cp -n .env.example .env
+docker compose up -d --build --remove-orphans
 ```
 
 Kiểm tra trạng thái các container đang chạy:
@@ -91,6 +92,26 @@ Kiểm tra trạng thái các container đang chạy:
 ```bash
 docker compose ps
 ```
+
+Khi chạy backend bằng `dotnet run`, đặt `Kafka__BootstrapServers=localhost:9092`. [Hướng dẫn kiểm thử API](docs/API_TESTING_GUIDE.md)
+
+#### Chạy nhiều replica backend
+
+```bash
+docker compose up -d --build \
+  --scale trip-service=2 \
+  --scale matching-service=2 \
+  --scale payment-service=2
+docker compose ps
+```
+
+Client vẫn truy cập Gateway tại `http://localhost:5000`. YARP lấy danh sách replica từ DNS nội bộ của Docker và cập nhật mỗi 5 giây. Các kết nối SignalR sử dụng cookie `SwiftRide.TripHub` để duy trì cùng một replica trong quá trình kết nối.
+
+Các replica của cùng backend dùng chung cơ sở dữ liệu, Redis và consumer group Kafka. Số replica có thể cùng đọc một topic trong một group phụ thuộc vào số partition của topic đó.
+
+#### Cấu hình từng topic Kafka
+
+Mỗi topic có một mục trong [kafka-topics.json](src/Shared.Messaging/kafka-topics.json). Chỉnh `numPartitions` và `replicationFactor` cho cấu trúc của topic khi tạo mới. Các thuộc tính trong `configs` là cấu hình Kafka của riêng topic đó, ví dụ `retention.ms` tính bằng mili giây. Backend đồng bộ các thuộc tính đã khai báo khi khởi động, kể cả với topic đã tồn tại.
 
 ### Bước 3: Restore dependencies và Build mã nguồn
 
@@ -110,10 +131,11 @@ dotnet build SwiftRide.slnx
 | **SQL Server**          | `localhost:1433`         | `sa` / `Password123!`           | Dành cho TripService       |
 | **MongoDB**             | `localhost:27017`        | Mặc định (no auth)              | DB: `MatchDB`              |
 | **PostgreSQL**          | `localhost:5432`         | `postgres` / `postgrespassword` | DB: `PayDB`                |
-| **RabbitMQ Management** | `http://localhost:15672` | `guest` / `guest`               | Giao diện quản lý hàng đợi |
-| **RabbitMQ AMQP**       | `amqp://localhost:5672`  | `guest` / `guest`               | Cổng kết nối bus           |
+| **Kafka**               | `localhost:9092`        | PLAINTEXT (local)              | Kafka KRaft cho phát triển |
 
 ### Microservices (.NET Apps)
+
+Khi chạy Compose, gọi API qua Gateway. Các cổng backend dưới đây dùng khi chạy bằng IDE hoặc `dotnet run`.
 
 | Dịch vụ             | URL HTTP (Local)        | Swagger / OpenAPI                       |
 | :------------------ | :---------------------- | :-------------------------------------- |

@@ -4,6 +4,10 @@ Tài liệu tập trung vào **gửi gì, nhận gì, gửi/nhận vào lúc nà
 
 Đã đối chiếu code và kiểm tra trực tiếp server ngày **16/11/2026**. Phạm vi kiểm tra, kết quả từng endpoint và các giới hạn còn lại nằm trong [báo cáo kiểm tra server](FE_API_VERIFICATION_2026-11-16.md).
 
+**Cập nhật code ngày 17/11/2026:** Đã bổ sung JWT tại các microservice và phân quyền Hub, availability, thanh toán/refund, đọc ví. Các quy tắc mới bên dưới có hiệu lực khi triển khai bản sửa; chưa triển khai hoặc xác minh lại server sau sửa. Chi tiết triển khai nằm ở phần cập nhật 17/11 trong báo cáo.
+
+**Cập nhật ngày 20/11/2026:** Server demo đã xác nhận tạo nguồn tiền HTTP 201. Phần event mới, reconnect và rate limit bên dưới mô tả code trong workspace. Xem kết quả kiểm tra và phạm vi triển khai trong [báo cáo](FE_API_VERIFICATION_2026-11-16.md#cập-nhật-ngày-20112026).
+
 ## 1. Quy ước chung
 
 - Base URL server bàn giao FE: `https://kha-dev.impala-tritone.ts.net`.
@@ -15,7 +19,7 @@ Tài liệu tập trung vào **gửi gì, nhận gì, gửi/nhận vào lúc nà
 - ID là chuỗi GUID. Tiền là number theo VND; tọa độ là number; thời gian là chuỗi ISO 8601.
 - `Trip.status` trong REST là number; `newStatus` trong event realtime là string.
 - Thông báo `message`, `traceId`, ID và timestamp có thể thay đổi. Dùng HTTP status và `errors[].code` để xử lý logic.
-- Collection gọi tay: [APIs Only](../postman/SwiftRide.APIsOnly.postman_collection.json), dùng cùng [environment server](../postman/SwiftRide.Server.postman_environment.json) hoặc [environment local](../postman/SwiftRide.postman_environment.json). Environment server để trống `demo_password`; điền mật khẩu demo được BE cung cấp, khớp cấu hình server. Không Run toàn bộ collection như một kịch bản tuần tự vì reject/cancel là nhánh thay thế.
+- Trong collection SwiftRide, mở thư mục **02. Gọi API thủ công** và dùng **Send** cho từng request. Chọn environment server hoặc local và điền `demo_password` theo cấu hình môi trường. [Collection SwiftRide](../postman/SwiftRide.postman_collection.json) · [Môi trường Server](../postman/SwiftRide.Server.postman_environment.json) · [Môi trường Local](../postman/SwiftRide.postman_environment.json)
 
 ### Kết nối từ trình duyệt
 
@@ -68,7 +72,7 @@ Không phải mọi lỗi đều có envelope: lỗi JWT/Gateway có thể trả
 | refreshToken | string | Dùng đổi token; refresh thành công làm token refresh cũ mất hiệu lực |
 | expiresIn | number | Số giây access token có hiệu lực, không phải timestamp |
 | user.id | GUID string | ID user đang đăng nhập; role Driver dùng ID này cho route vị trí của mình |
-| quoteId | GUID string | ID báo giá, dùng khi tạo chuyến |
+| quoteId | GUID string | ID dùng để gắn báo giá vào chuyến Requested |
 | tripId / Trip.id | GUID string | ID chuyến, dùng cho action và phòng realtime |
 | transactionId | GUID string | ID giao dịch thanh toán; dùng cho hoàn tiền, khác tripId |
 | paymentTokenId | GUID string | ID nguồn tiền đã liên kết, khác token/maskedToken |
@@ -252,17 +256,17 @@ Không có body.
   "message": "Quote generated successfully",
   "data": {
     "quoteId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
     "pricingBreakdown": {
-      "distanceCost": 20798.45808247298,
+      "distanceCost": 20800,
       "timeCost": 6000,
       "surgeMultiplier": 1.3,
       "tollFee": 0,
       "discountRate": 1,
       "taxRate": 0.1
     },
-    "totalFare": 38322,
+    "totalFare": 38324,
     "expiresAt": "2026-11-09T16:10:00Z"
   },
   "meta": null,
@@ -273,7 +277,7 @@ Không có body.
 
 **Lỗi cần xử lý:** 400 VALIDATION_ERROR; 404 PRICING_NOT_FOUND nếu không có cấu hình giá.
 
-**Sau khi nhận response:** Giữ quoteId, distanceKm, estimatedDurationMinutes, totalFare để tạo chuyến. expiresAt thường sau khoảng 10 phút; đổi tuyến/loại xe hoặc hết hạn thì lấy báo giá mới. discountRate hiện là hệ số promo (1 nghĩa là giữ nguyên), không phải số phần trăm giảm.
+**Sau khi nhận response:** Hiển thị totalFare, distanceKm và estimatedDurationMinutes. Gắn quoteId vào chuyến Requested bằng PUT /api/trips/{id}/quote. Báo giá có hạn 10 phút. Khi đổi tuyến hoặc loại xe, tạo chuyến Requested với dữ liệu mới và lấy báo giá tương ứng. Nếu báo giá hết hạn, lấy báo giá mới cho cùng chuyến.
 
 ### 05. Tìm tài xế quanh điểm đón
 
@@ -420,7 +424,7 @@ Backend kiểm tra role Driver và ID; Rider hoặc tài xế khác bị từ ch
 
 Path id lấy từ tài khoản Driver đang đăng nhập.
 
-**Header:** Auth của Driver trong luồng frontend + `Content-Type: application/json`.
+**Header:** Auth của Driver có user.id trùng path id + `Content-Type: application/json`. Rider, Admin và tài xế khác không được sửa availability này.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
@@ -451,7 +455,7 @@ Path id lấy từ tài khoản Driver đang đăng nhập.
 }
 ```
 
-**Lỗi cần xử lý:** 400 INVALID_DRIVER_ID; 404 DRIVER_NOT_FOUND; 409 DRIVER_RESERVED khi bật mà tài xế đang được giữ cho chuyến.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi sai role hoặc ID; 400 INVALID_DRIVER_ID; 404 DRIVER_NOT_FOUND; 409 DRIVER_RESERVED khi bật mà tài xế đang được giữ cho chuyến.
 
 **Sau khi nhận response:** Kết nối và JoinDriverRoom trước khi bật online để nhận đề nghị.
 
@@ -490,28 +494,22 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
 
 | Trường | Kiểu / yêu cầu | Ý nghĩa |
 |---|---|---|
-| quoteId | GUID hoặc null, tùy chọn | Nên dùng quoteId thực tế; không gửi chuỗi rỗng |
+| quoteId | GUID hoặc null, tùy chọn | Client đã lấy báo giá có thể gắn ngay khi tạo chuyến |
 | pickupLatitude / pickupLongitude / pickupAddress | number / number / string | Tọa độ hợp lệ và địa chỉ đón không rỗng |
 | dropoffLatitude / dropoffLongitude / dropoffAddress | number / number / string | Tọa độ hợp lệ và địa chỉ trả không rỗng |
-| distanceKm | number >= 0 | Sao chép từ quote |
-| estimatedDurationMinutes | integer > 0 | Sao chép từ quote |
-| estimatedFare | number >= 0 | Lấy từ quote.totalFare |
+| distanceKm, estimatedDurationMinutes, estimatedFare | number, tùy chọn | Trường tương thích. Server lấy các số liệu từ báo giá đã xác minh |
 | vehicleType | string, mặc định Bike | Bike / Car4 / Car7 |
 
 **Request body:**
 ```json
 {
-  "quoteId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   "pickupLatitude": 10.7755,
   "pickupLongitude": 106.699,
   "dropoffLatitude": 10.785,
   "dropoffLongitude": 106.71,
   "vehicleType": "Bike",
   "pickupAddress": "Điểm đón mẫu",
-  "dropoffAddress": "Điểm trả mẫu",
-  "distanceKm": 2.079845808247298,
-  "estimatedDurationMinutes": 6,
-  "estimatedFare": 38322
+  "dropoffAddress": "Điểm trả mẫu"
 }
 ```
 
@@ -524,7 +522,7 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
     "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     "riderId": "11111111-1111-1111-1111-111111111111",
     "driverId": null,
-    "quoteId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "quoteId": null,
     "status": 0,
     "pickupLatitude": 10.7755,
     "pickupLongitude": 106.699,
@@ -532,9 +530,9 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
-    "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "distanceKm": 0,
+    "estimatedDurationMinutes": 0,
+    "estimatedFare": 0,
     "actualFare": null,
     "fareConfirmed": false,
     "vehicleType": "Bike",
@@ -555,9 +553,26 @@ Tạo Trip ở Requested; chưa bắt đầu ghép tài xế.
 }
 ```
 
-**Lỗi cần xử lý:** 400 với lỗi trường cụ thể như INVALID_PICKUP_ADDRESS, INVALID_DURATION, INVALID_FARE; GUID/JSON sai cũng có thể trả 400.
+**Sau khi nhận response:** Lưu data.id làm tripId và tham gia phòng SignalR của chuyến. Lấy báo giá với cùng tọa độ và loại xe. Nếu yêu cầu tạo chuyến timeout, đọc active trip trước khi gửi lại.
 
-**Sau khi nhận response:** Lưu data.id làm tripId, join phòng chuyến rồi mới confirm. API hiện nhận giá/tuyến từ body, không nên suy ra rằng server đã đối chiếu tất cả dữ liệu với quoteId. Không tự retry tạo chuyến khi timeout; đọc active trip trước.
+#### Gắn báo giá vào chuyến Requested
+
+**PUT `/api/trips/{id}/quote`** với token của Rider sở hữu chuyến.
+
+```json
+{"quoteId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}
+```
+
+HTTP 200 trả về Trip với quoteId, estimatedFare, distanceKm và estimatedDurationMinutes lấy từ Matching/Pricing. fareConfirmed vẫn là false.
+
+| HTTP | Mã | Xử lý |
+|---|---|---|
+| 400 | QUOTE_REQUIRED, QUOTE_MISMATCH | Kiểm tra quoteId, tọa độ đón/trả và loại xe |
+| 403 | FORBIDDEN_QUOTE_ACCESS, FORBIDDEN_TRIP_ACCESS | Dùng báo giá và chuyến của Rider đang đăng nhập |
+| 404 | QUOTE_NOT_FOUND | Tạo báo giá mới nếu báo giá cũ đã được dọn |
+| 409 | QUOTE_EXPIRED | Tạo báo giá mới và gắn lại |
+| 409 | TRIP_INVALID_TRANSITION, TRIP_CONCURRENCY_CONFLICT | Tải lại chuyến |
+| 503 | QUOTE_SERVICE_UNAVAILABLE | Thử lại khi dịch vụ báo giá hoạt động |
 
 ### 10. Chủ chuyến xác nhận giá
 
@@ -569,8 +584,11 @@ Path id là tripId.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
-**Request body:**
-Không có body.
+**Request body:** Gửi quoteId của báo giá đang hiển thị. Client cũ có thể bỏ body để xác nhận báo giá đã gắn.
+
+```json
+{"quoteId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}
+```
 
 **Response HTTP 200:**
 ```json
@@ -589,9 +607,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -612,9 +630,9 @@ Không có body.
 }
 ```
 
-**Lỗi cần xử lý:** 403 FORBIDDEN_TRIP_ACCESS; 404 TRIP_NOT_FOUND; 409 TRIP_INVALID_TRANSITION.
+**Lỗi cần xử lý:** Các lỗi xác minh giống bước gắn báo giá. QUOTE_CHANGED (409) yêu cầu tải lại chuyến và hiển thị báo giá hiện tại trước khi xác nhận.
 
-**Sau khi nhận response:** status vẫn là 0, fareConfirmed chuyển true. Ghép xe chạy bất đồng bộ sau response; Driver nhận ReceiveTripOffer. Không gửi body {quoteId}: endpoint hiện không đọc body này.
+**Sau khi nhận response:** Lần xác nhận đầu chuyển fareConfirmed thành true và khởi động matching. Gửi lại cùng quoteId trả về trạng thái hiện tại của chuyến. Giá đã chốt dùng đến khi quyết toán.
 
 ### 11. Lấy chuyến đang hoạt động
 
@@ -646,9 +664,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -705,9 +723,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -740,7 +758,7 @@ Path id là tripId trong ReceiveTripOffer.
 
 **Header:** Auth của Driver trong luồng nhận đề nghị.
 
-**Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
+**Path/query:** Dùng tripId và gửi `?offerId=<GUID>` lấy từ ReceiveTripOffer. Client cũ có thể bỏ query. Backend luôn kiểm tra người nhận và hạn của offer đang mở.
 
 **Request body:**
 Không có body.
@@ -762,9 +780,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -785,7 +803,7 @@ Không có body.
 }
 ```
 
-**Lỗi cần xử lý:** 404 TRIP_NOT_FOUND; 409 TRIP_INVALID_TRANSITION hoặc TRIP_ALREADY_ACCEPTED.
+**Lỗi cần xử lý:** 403 nếu thiếu role Driver hoặc FORBIDDEN_OFFER_ACCESS. 404 TRIP_NOT_FOUND. 409 OFFER_NOT_ACTIVE, OFFER_EXPIRED hoặc TRIP_CONCURRENCY_CONFLICT. Đóng popup và cập nhật giao diện nếu offer đã đóng.
 
 **Sau khi nhận response:** driverId được lấy từ người gọi, status thành 1. Rider nhận TripStatusChanged với newStatus = DriverAccepted. FE không gửi driverId trong body.
 
@@ -797,7 +815,7 @@ Nhánh thay thế cho accept; không gọi tiếp như bước bắt buộc sau 
 
 **Header:** Auth của Driver trong luồng từ chối + `Content-Type: application/json`.
 
-**Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
+**Path/query:** Dùng tripId và gửi `?offerId=<GUID>` lấy từ ReceiveTripOffer. Client cũ có thể bỏ query. Backend luôn kiểm tra người nhận và hạn của offer đang mở.
 
 **Dữ liệu gửi:**
 
@@ -829,9 +847,9 @@ Nhánh thay thế cho accept; không gọi tiếp như bước bắt buộc sau 
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -852,9 +870,9 @@ Nhánh thay thế cho accept; không gọi tiếp như bước bắt buộc sau 
 }
 ```
 
-**Lỗi cần xử lý:** 404 TRIP_NOT_FOUND; 409 nếu chuyển trạng thái không hợp lệ.
+**Lỗi cần xử lý:** 403 nếu thiếu role Driver hoặc FORBIDDEN_OFFER_ACCESS. 404 TRIP_NOT_FOUND. 409 OFFER_NOT_ACTIVE, OFFER_EXPIRED hoặc TRIP_CONCURRENCY_CONFLICT. Đóng popup và cập nhật giao diện nếu offer đã đóng.
 
-**Sau khi nhận response:** Ví dụ là lần từ chối đầu: status vẫn 0, số lần tăng lên 1. Backend tìm tài xế khác; quá 3 lần từ chối có thể chuyển Failed (9).
+**Sau khi nhận response:** Trong ví dụ lần từ chối đầu, status vẫn là 0 và driverRejectionCount tăng lên 1. Từ chối và hết hạn đều tính vào giới hạn 4 lượt ghép. Khi cạn lượt hoặc hết tài xế phù hợp, chuyến chuyển Failed (9).
 
 ### 15. Bắt đầu đến điểm đón
 
@@ -886,9 +904,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -911,7 +929,7 @@ Không có body.
 
 **Lỗi cần xử lý:** 403 FORBIDDEN_TRIP_ACCESS; 404 TRIP_NOT_FOUND; 409 TRIP_INVALID_TRANSITION / TRIP_CONCURRENCY_CONFLICT.
 
-**Sau khi nhận response:** REST trả status = 2. Hiện không có TripStatusChanged riêng cho bước này; dùng response để cập nhật UI.
+**Sau khi nhận response:** REST trả status = 2. Client thực hiện action cập nhật UI từ response. Các client đang theo dõi nhận `TripStatusChanged` với `newStatus` là `EnRoute` sau khi lưu trạng thái.
 
 ### 16. Xác nhận đón khách
 
@@ -943,9 +961,9 @@ Không có body.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -1010,10 +1028,10 @@ Chỉ gọi sau pick-up.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
-    "actualFare": 38322,
+    "estimatedFare": 38324,
+    "actualFare": 38324,
     "fareConfirmed": true,
     "vehicleType": "Bike",
     "driverRejectionCount": 0,
@@ -1077,9 +1095,9 @@ Nhánh hủy khi trạng thái còn cho phép; không chạy sau Completed.
     "dropoffLongitude": 106.71,
     "pickupAddress": "Điểm đón mẫu",
     "dropoffAddress": "Điểm trả mẫu",
-    "distanceKm": 2.079845808247298,
+    "distanceKm": 2.08,
     "estimatedDurationMinutes": 6,
-    "estimatedFare": 38322,
+    "estimatedFare": 38324,
     "actualFare": null,
     "fareConfirmed": true,
     "vehicleType": "Bike",
@@ -1137,9 +1155,9 @@ Không có body.
       "dropoffLongitude": 106.71,
       "pickupAddress": "Điểm đón mẫu",
       "dropoffAddress": "Điểm trả mẫu",
-      "distanceKm": 2.079845808247298,
+      "distanceKm": 2.08,
       "estimatedDurationMinutes": 6,
-      "estimatedFare": 38322,
+      "estimatedFare": 38324,
       "actualFare": null,
       "fareConfirmed": true,
       "vehicleType": "Bike",
@@ -1181,7 +1199,9 @@ Không có body.
 
 Dùng khi cần retry PaymentPending; không gọi ngay sau drop-off đang thanh toán tự động.
 
-**Header:** Auth của user trong luồng thanh toán + `Content-Type: application/json`.
+**Header:** Auth của Rider chủ chuyến + `Content-Type: application/json`. Driver và Admin không gọi API thanh toán lại thay Rider.
+
+Server đọc lại Trip bằng JWT người gọi trước khi ghi sổ. Trip phải đang PaymentPending (5), có driverId và actualFare > 0. riderId, driverId và amount trong body phải khớp snapshot; không dùng estimatedFare khi actualFare đã có. Nếu không xác minh được Trip, server từ chối xử lý và không trừ tiền.
 
 Header bổ sung:
 ```http
@@ -1206,7 +1226,7 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   "riderId": "11111111-1111-1111-1111-111111111111",
   "driverId": "22222222-2222-2222-2222-222222222222",
-  "amount": 38322,
+  "amount": 38324,
   "paymentMethod": "Wallet",
   "paymentTokenId": null
 }
@@ -1222,10 +1242,10 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
     "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     "status": "Success",
     "paymentMethod": "Wallet",
-    "totalAmount": 38322,
-    "riderDebitAmount": 38322,
-    "driverCreditAmount": 30657.6,
-    "platformFeeAmount": 7664.4,
+    "totalAmount": 38324,
+    "riderDebitAmount": 38324,
+    "driverCreditAmount": 30659.2,
+    "platformFeeAmount": 7664.8,
     "description": "Thanh toan chuyen di qua Wallet",
     "createdAt": "2026-11-09T16:00:00Z"
   },
@@ -1235,7 +1255,7 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
 }
 ```
 
-**Lỗi cần xử lý:** 400 VALIDATION_ERROR nếu thiếu key; 422 INSUFFICIENT_BALANCE / VALIDATION_ERROR; 409 PAYMENT_DUPLICATE; 502 PAYMENT_GATEWAY_ERROR.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi sai role hoặc chủ chuyến; 404 NOT_FOUND nếu không có Trip; 400 PAYMENT_TRIP_MISMATCH khi rider/driver/amount không khớp; 400 VALIDATION_ERROR nếu thiếu key; 422 INSUFFICIENT_BALANCE / VALIDATION_ERROR; 409 PAYMENT_NOT_PENDING khi Trip chưa/sau giai đoạn thanh toán lại; 409 PAYMENT_DUPLICATE; 502 PAYMENT_GATEWAY_ERROR; 503 TRIP_SERVICE_UNAVAILABLE khi không xác minh được Trip.
 
 **Sau khi nhận response:** Giữ nguyên key và payload khi retry lỗi tạm thời; không sinh key mới mỗi lần nhấn retry. Lưu transactionId. 409 không trả lại PaymentResponse thành công một cách bảo đảm: có thể giao dịch đang chạy/đã chạy. Các cổng ngoài hiện là giả lập.
 
@@ -1245,7 +1265,7 @@ X-Idempotency-Key: manual_<tripId>_<id-thao-tac>
 
 Path dùng transactionId từ Payment response hoặc PaymentCompleted, không dùng tripId.
 
-**Header:** Auth của user trong luồng hoàn tiền + `Content-Type: application/json`.
+**Header:** Auth của Rider chủ chuyến gắn với giao dịch hoặc Admin + `Content-Type: application/json`. Driver và Rider khác bị từ chối. Với Rider, server xác minh quyền qua TripService trước khi hoàn tiền; không xác minh được thì không thay đổi số dư.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
@@ -1269,7 +1289,7 @@ Path dùng transactionId từ Payment response hoặc PaymentCompleted, không d
   "message": "Hoan tien thanh cong",
   "data": {
     "transactionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    "refundAmount": 38322,
+    "refundAmount": 38324,
     "status": "Refunded",
     "refundedAt": "2026-11-09T16:00:00Z"
   },
@@ -1279,7 +1299,7 @@ Path dùng transactionId từ Payment response hoặc PaymentCompleted, không d
 }
 ```
 
-**Lỗi cần xử lý:** 404 NOT_FOUND; 409 PAYMENT_DUPLICATE nếu không phải giao dịch có thể hoàn hoặc đã hoàn.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi không có quyền; 404 NOT_FOUND; 409 PAYMENT_DUPLICATE nếu không phải giao dịch có thể hoàn hoặc đã hoàn; 503 TRIP_SERVICE_UNAVAILABLE khi không xác minh được Trip cho Rider.
 
 **Sau khi nhận response:** transactionId trong response là giao dịch gốc được hoàn, không phải ID bút toán hoàn mới. Đọc lại ví; không tự đổi Trip từ Completed về Requested.
 
@@ -1375,7 +1395,7 @@ Không có body.
 
 Path ownerId là user.id của ví cần hiển thị.
 
-**Header:** Auth của user trong luồng ví.
+**Header:** Auth của user có user.id trùng ownerId hoặc Admin. User khác không được đọc ví này.
 
 **Path/query:** Không có query string; thay các `{...}` trong route bằng GUID thực tế.
 
@@ -1402,7 +1422,7 @@ Không có body.
 }
 ```
 
-**Lỗi cần xử lý:** 404 NOT_FOUND.
+**Lỗi cần xử lý:** 401 nếu thiếu/sai JWT; 403 FORBIDDEN khi không phải chủ ví hoặc Admin; 404 NOT_FOUND.
 
 **Sau khi nhận response:** Ví Driver có ownerType Driver; accountType là chuỗi như WalletLiability/PlatformRevenue/EscrowHolding. Số dư ví là dữ liệu live, không mặc định luôn 500000. Refresh sau thanh toán/hoàn tiền.
 
@@ -1422,7 +1442,7 @@ Không có body.
 | 9 | Failed | Thất bại |
 
 ```text
-Rider: login → quote → create trip → JoinTripRoom → confirm-quote
+Rider: login → create Requested → JoinTripRoom → quote → attach quote → confirm-quote
 Driver: login → JoinDriverRoom → availability=true → nhận ReceiveTripOffer
 Driver: accept → start-route → pick-up → drop-off
 Backend: quyết toán tự động → PaymentCompleted và REST trip dần tới Completed
@@ -1437,22 +1457,35 @@ Không gọi accept rồi reject/cancel như các bước bắt buộc của cù
 
 - Hub URL server: `https://kha-dev.impala-tritone.ts.net/hubs/trips`; local: `http://localhost:5000/hubs/trips`.
 - Dùng client SignalR với `accessTokenFactory` trả accessToken hiện tại. Client xử lý negotiate/transport; không gửi raw WebSocket JSON theo kiểu REST.
+- Khi Trip chạy nhiều replica, client dùng `negotiate` cần gửi lại cookie `SwiftRide.TripHub` do Gateway cấp trong các request tiếp theo của kết nối.
 - Đăng ký handler nhận event trước khi kết nối/join phòng.
 - Các lời gọi hub dưới đây nhận **một chuỗi GUID**, không nhận object `{driverId:...}` hoặc `{tripId:...}`.
 - Hub method không trả ApiResponse hay Trip. Promise invoke hoàn tất nghĩa là lời gọi hub đã xử lý; nếu lỗi thì promise reject.
-- Hub hiện chưa bắt buộc JWT: negotiate không token cũng trả 200; code Hub không kiểm tra quyền join phòng. FE vẫn gửi token và chỉ join phòng của user/chuyến liên quan. BE cần bổ sung xác thực và quyền truy cập Hub trước khi dùng dữ liệu thực; việc FE tự giới hạn phòng không thay thế kiểm tra phía server.
+- Hub bắt buộc JWT hợp lệ ở Gateway và TripService; negotiate thiếu/sai/hết hạn token trả 401. Driver chỉ join/leave phòng driverId của mình; JoinTripRoom chỉ cho Rider chủ chuyến hoặc Driver được gán. Admin không có quyền join phòng chuyến mặc định. ID phòng phải là GUID khác rỗng; server chuẩn hóa GUID trước khi đặt tên phòng.
+- Hub invoke bị từ chối sẽ reject với lỗi như FORBIDDEN_DRIVER_ACCESS, FORBIDDEN_TRIP_ACCESS hoặc INVALID_ROOM_ID; không phải envelope REST. LeaveTripRoom chỉ xóa chính connection hiện tại, vẫn cho rời phòng khi assignment đã thay đổi. Kết nối đóng khi JWT hết hạn; client lấy token mới rồi reconnect và join lại phòng.
 
 ```ts
 const apiBaseUrl = "https://kha-dev.impala-tritone.ts.net";
 const hub = new signalR.HubConnectionBuilder()
   .withUrl(`${apiBaseUrl}/hubs/trips`, {
-    accessTokenFactory: () => accessTokenHienTai,
+    accessTokenFactory: () => getFreshAccessToken(),
   })
   .withAutomaticReconnect()
   .build();
 // signalR là client @microsoft/signalr đã import trong frontend.
-// Đăng ký hub.on(...) trước start; xem payload ở phần 9.
+// Nối getFreshAccessToken với auth store của ứng dụng theo phần reconnect.
+// Đăng ký hub.on(...) và hub.onreconnected(...) trước start.
+async function syncRooms() {
+  // Hai hàm này là adapter của ứng dụng, dùng session và Trip snapshot hiện tại.
+  const { driverId, tripId } = await getAuthorizedRooms();
+  if (driverId) await hub.invoke("JoinDriverRoom", driverId);
+  if (tripId) await hub.invoke("JoinTripRoom", tripId);
+  if (tripId) await reloadTrip(tripId);
+}
+
+hub.onreconnected(() => syncRooms().catch(showRealtimeSyncError));
 await hub.start();
+await syncRooms();
 ```
 
 ### 8.2 Bốn lời gọi client → server
@@ -1501,12 +1534,13 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **Người nhận:** Driver đã JoinDriverRoom(driverId).
 
-**Khi nào gửi:** Matching tìm/giữ được tài xế và phát đề nghị.
+**Khi nào gửi:** TripService lưu đề nghị sau khi Matching giữ được tài xế.
 
 **Payload callback nhận được:**
 ```json
 {
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "offerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   "driverId": "22222222-2222-2222-2222-222222222222",
   "pickupAddress": "Điểm đón mẫu",
   "pickupLatitude": 10.7755,
@@ -1514,8 +1548,8 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
   "dropoffAddress": "Điểm trả mẫu",
   "dropoffLatitude": 10.785,
   "dropoffLongitude": 106.71,
-  "estimatedFare": 38322,
-  "distanceKm": 2.079845808247298,
+  "estimatedFare": 38324,
+  "distanceKm": 2.08,
   "durationMinutes": 6,
   "countdownSeconds": 15,
   "expiresAt": "2026-11-09T16:00:15Z"
@@ -1524,25 +1558,26 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 | Field | Kiểu / ý nghĩa |
 |---|---|
-| tripId / driverId | GUID string; chuyến được đề nghị và tài xế nhận đề nghị |
+| tripId / driverId / offerId | GUID string; chuyến được đề nghị và tài xế nhận đề nghị |
 | pickup*/dropoff* | Địa chỉ string và tọa độ number |
 | estimatedFare / distanceKm | number; giá và km dự kiến |
 | durationMinutes | integer; khác tên estimatedDurationMinutes trong Quote/Trip |
 | countdownSeconds | integer; khoảng thời gian nhận đề nghị |
 | expiresAt | ISO string; thời điểm hết hiệu lực đề nghị |
 
-**FE xử lý:** Hiển thị tuyến, giá, countdown theo expiresAt. Nhấn đồng ý gọi REST accept; từ chối gọi REST reject. Không invoke một method Accept trên hub vì backend không có method đó. Offer chứa dữ liệu tuyến để Driver xem trước khi được gán quyền đọc Trip.
+**FE xử lý:** Hiển thị mỗi offerId một lần và tính đếm ngược theo expiresAt. Gửi cùng offerId khi gọi accept hoặc reject.
 
 ### 9.2 TripOfferExpired
 
 **Người nhận:** Driver trong phòng driverId.
 
-**Khi nào gửi:** Backend phát sự kiện hủy/hết hiệu lực offer; hiện luồng hủy chuyến có phát event này.
+**Khi nào gửi:** Backend phát khi offer hết hạn hoặc Rider hủy chuyến đang có offer. Matching thử tài xế khác sau hết hạn trong giới hạn 4 lượt.
 
 **Payload callback nhận được:**
 ```json
 {
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "offerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   "driverId": "22222222-2222-2222-2222-222222222222",
   "message": "Chuyến đi đã bị hủy"
 }
@@ -1550,16 +1585,16 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 | Field | Kiểu / ý nghĩa |
 |---|---|
-| tripId / driverId | GUID string; xác định popup cần đóng |
+| tripId / driverId / offerId | GUID string; xác định popup cần đóng |
 | message | string; thông báo từ backend |
 
-**FE xử lý:** Đóng popup của đúng tripId. Tự đếm ngược theo expiresAt; không dựa vào giả định server chắc chắn gửi event đúng giây thứ 15.
+**FE xử lý:** Đóng popup khớp offerId và dùng expiresAt để tự đóng khi đếm ngược kết thúc.
 
 ### 9.3 DriverLocationUpdated
 
 **Người nhận:** User đã JoinTripRoom(activeTripId).
 
-**Khi nào gửi:** Driver PUT location với activeTripId không null; cập nhật được phát qua RabbitMQ.
+**Khi nào gửi:** Driver PUT location với activeTripId không null; cập nhật được phát qua Kafka.
 
 **Payload callback nhận được:**
 ```json
@@ -1657,7 +1692,22 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **FE xử lý:** Thông báo tìm xe thất bại, đọc lại Trip. Đây là cùng tên event TripStatusChanged với hai mục trên, không phải tên event MatchingFailed cho frontend.
 
-### 9.7 PaymentCompleted
+Với code ngày 20/11, server phát `Failed` sau khi đã ghi trạng thái Trip, kể cả khi vượt giới hạn từ chối. Payload có thể thêm `driverId` với giá trị `null`.
+
+### 9.7 TripStatusChanged — di chuyển và thanh toán
+
+| `newStatus` | Khi nào phát | Trạng thái REST liên quan |
+|---|---|---|
+| `EnRoute` | Lưu thành công action start-route | 2 |
+| `PickedUp` | Lưu thành công action pick-up | 3 |
+| `DroppedOff` | Lưu thành công action drop-off | 4 |
+| `PaymentPending` | TripService lưu kết quả thanh toán cần thử lại | 5 |
+| `Paid` | TripService lưu bước đã quyết toán | 6, có thể đọc thấy 7 ngay |
+| `Completed` | TripService lưu chuyến hoàn tất | 7 |
+
+Payload trực tiếp gồm `tripId`, `newStatus`, `driverId`, `timestamp` và `cancellationReason` (null ở các bước trên). `timestamp` là thời điểm chuyển trạng thái. `Paid` và `Completed` có thể được ghi trong cùng transaction với cùng timestamp. Khi nhận một trong hai sự kiện, FE đọc lại snapshot và áp dụng trạng thái hiện tại. Tiếp tục dùng `PaymentCompleted` để lấy transactionId.
+
+### 9.8 PaymentCompleted
 
 **Người nhận:** User trong phòng tripId.
 
@@ -1668,9 +1718,9 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 {
   "tripId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   "transactionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-  "totalAmount": 38322,
+  "totalAmount": 38324,
   "paymentMethod": "Wallet",
-  "netEarnings": 30657.6,
+  "netEarnings": 30659.2,
   "status": "Success",
   "completedAt": "2026-11-09T16:00:00Z"
 }
@@ -1687,11 +1737,11 @@ Server gửi một **payload object trực tiếp** vào callback `hub.on`. Khô
 
 **FE xử lý:** Lưu transactionId, hiển thị thanh toán thành công, tải lại ví và Trip. Có thể nhận event trước khi Trip chuyển Completed trong SQL; tiếp tục poll ngắn có giới hạn thay vì coi response Trip còn DroppedOff là thất bại.
 
-### 9.8 Ví dụ đăng ký nhận payload
+### 9.9 Ví dụ đăng ký nhận payload
 
 ```ts
 hub.on("ReceiveTripOffer", payload => {
-  // payload.tripId, payload.estimatedFare, payload.expiresAt
+  // payload.tripId, payload.offerId, payload.estimatedFare, payload.expiresAt
 });
 hub.on("DriverLocationUpdated", payload => {
   // payload.latitude, payload.longitude; KHÔNG phải payload.data.latitude
@@ -1703,7 +1753,7 @@ hub.on("PaymentCompleted", payload => {
   // payload.transactionId dùng cho hóa đơn/hoàn tiền.
 });
 hub.on("TripOfferExpired", payload => {
-  // Đóng popup tương ứng payload.tripId.
+  // Đóng popup tương ứng payload.offerId.
 });
 ```
 
@@ -1714,21 +1764,22 @@ sequenceDiagram
     participant R as Rider FE
     participant API as Gateway / REST
     participant H as SignalR Hub
-    participant B as Backend / RabbitMQ
+    participant B as Backend / Kafka
     participant D as Driver FE
     D->>H: Kết nối + JoinDriverRoom(driverId)
     D->>API: PUT availability {isAvailable:true}
-    R->>API: POST quote (tọa độ, loại xe)
-    API-->>R: Quote (quoteId, totalFare, khoảng cách, phút)
-    R->>API: POST trips (dữ liệu quote + địa chỉ)
+    R->>API: POST trips (tọa độ, địa chỉ, loại xe)
     API-->>R: Trip Requested (id, status:0)
     R->>H: Kết nối + JoinTripRoom(tripId)
-    R->>API: POST confirm-quote (không body)
+    R->>API: POST quote (tọa độ, loại xe)
+    API-->>R: Quote (quoteId, totalFare, khoảng cách, phút)
+    R->>API: PUT trips/{id}/quote (quoteId)
+    R->>API: POST confirm-quote (quoteId)
     API-->>R: Trip status:0, fareConfirmed:true
     API->>B: Sự kiện ghép tài xế
     B->>H: TripOfferDispatchedEvent
     H-->>D: ReceiveTripOffer(payload)
-    D->>API: PUT accept (không body)
+    D->>API: PUT accept?offerId=...
     API-->>D: Trip status:1
     D->>H: JoinTripRoom(tripId)
     B->>H: TripAcceptedEvent
@@ -1750,15 +1801,13 @@ sequenceDiagram
 
 ### Reconnect, bỏ lỡ event và lỗi
 
-- Sau reconnect, gọi lại JoinDriverRoom/JoinTripRoom cho các phòng còn theo dõi; phòng không tự được khôi phục chỉ nhờ có accessToken.
-- Sau reconnect hoặc khi nhận event quan trọng, GET lại Trip/overview. Không giả định event đến đúng thứ tự hoặc mỗi event chỉ xuất hiện một lần.
-- Hiện backend không phát TripStatusChanged cho mọi bước start-route/pick-up/drop-off/Paid/Completed. PaymentPending cũng chưa có event frontend riêng trong các consumer realtime hiện tại.
+- Dùng `accessTokenFactory` để đọc token mới từ auth store mỗi lần SDK cần token. `getFreshAccessToken()` nên gọi refresh khi sắp hết hạn, chẳng hạn còn dưới 30 giây. Dùng chung một promise refresh cho REST và SignalR để tránh đổi cùng refresh token hai lần. Cập nhật cả cặp token sau refresh. Nếu refresh trả 401, dừng kết nối và yêu cầu đăng nhập lại.
+- Server đóng Hub khi JWT của kết nối hết hạn. SDK reconnect bằng token mới. Trong `onreconnected`, đọc lại chuyến đang theo dõi, gọi lại `JoinDriverRoom` nếu đang nhận chuyến và `JoinTripRoom` nếu vẫn có quyền, rồi GET lại Trip/overview để bù sự kiện bị lỡ. Nếu join hoặc GET lỗi, hiển thị trạng thái mất đồng bộ và dùng polling có giới hạn. Xử lý lần `start()` đầu thất bại riêng vì `withAutomaticReconnect()` chỉ xử lý sau lần kết nối đầu đã thành công.
+- `TripStatusChanged` là tín hiệu để đọc lại snapshot. Event có thể đến trễ, lặp hoặc đảo thứ tự, nhất là `Paid` và `Completed`. Gộp các lần tải lại gần nhau để tránh dồn request. Offer bị lỡ khi mất kết nối không tự được gửi lại. Driver bỏ offer đã quá `expiresAt` và mở lại màn nhận chuyến sau khi reconnect.
 - Khi chờ thanh toán hoặc mất realtime, có thể poll GET trip khoảng 2–3 giây với giới hạn thời gian; dừng khi Completed/Cancelled/Failed, rời màn hình hoặc logout. PaymentPending cần hiển thị nhánh xử lý riêng.
-- Gateway cấu hình hạn mức nghiệp vụ 100 request/phút và auth 10 request/phút. Middleware rate limiter hiện chạy trước authentication, nên không bảo đảm chia riêng theo user; các client cùng IP có thể chia sẻ hạn mức. Tránh gửi chồng request và xử lý HTTP 429 bằng backoff. Endpoint overview và Hub hiện không gắn policy rate limit này.
+- Gateway xác thực trước rate limit. Hạn mức nghiệp vụ là 100 request/phút và auth là 10 request/phút. JWT hợp lệ dùng bucket theo user, request chưa xác thực dùng bucket theo địa chỉ kết nối. Khi đặt Gateway sau proxy, BE có thể khai báo địa chỉ proxy tin cậy bằng `ForwardedHeaders__TrustedProxies__0` để tính IP client. FE xử lý HTTP 429 bằng backoff. Endpoint overview và Hub hiện chưa gắn policy này.
 - UI xử lý 401 bằng refresh một lần, 403 bằng dừng thao tác, 404 tùy ngữ cảnh, 409 bằng tải lại trạng thái. Không đổi idempotency key để vượt PAYMENT_DUPLICATE.
 
 ## 11. Endpoint tiện ích không thuộc luồng FE
 
 `GET /` trả `{"service":"ApiGateway","status":"Running"}` để kiểm tra Gateway. Nó không dùng envelope nghiệp vụ.
-
-`POST /dev/simulate-trip-requested` chỉ phục vụ Development, gọi trực tiếp MatchingService để publish event; không tạo Trip trong SQL và có thể giữ tài xế. Frontend không cần tích hợp endpoint này. Dùng REST tạo chuyến + confirm-quote trong luồng người dùng.

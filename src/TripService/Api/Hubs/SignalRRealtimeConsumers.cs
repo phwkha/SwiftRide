@@ -1,21 +1,30 @@
 using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using SwiftRide.Contracts.Events;
+using TripService.Domain.Enums;
+using TripService.Domain.Interfaces;
 
 namespace TripService.Api.Hubs;
 
 // Consumer 1: Dispatch trip offer popup to driver (SD 11)
-public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext)
+public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext, ITripReader trips, TimeProvider clock)
     : IConsumer<TripOfferDispatchedEvent>
 {
     public async Task Consume(ConsumeContext<TripOfferDispatchedEvent> context)
     {
         var e = context.Message;
+        var trip = await trips.GetCurrentByIdAsync(e.TripId, context.CancellationToken);
+        var remaining = e.ExpiresAt - clock.GetUtcNow();
+        if (trip is not { Status: TripStatus.Requested } || e.OfferId == Guid.Empty ||
+            trip.OfferId != e.OfferId || trip.OfferedDriverId != e.DriverId || remaining <= TimeSpan.Zero)
+            return;
+
         var groupName = $"driver_{e.DriverId.ToString().ToLowerInvariant()}";
         await hubContext.Clients.Group(groupName)
             .SendAsync("ReceiveTripOffer", new
             {
                 e.TripId,
+                e.OfferId,
                 e.DriverId,
                 e.PickupAddress,
                 e.PickupLatitude,
@@ -26,9 +35,9 @@ public class TripOfferDispatchedConsumer(IHubContext<TripHub> hubContext)
                 e.EstimatedFare,
                 e.DistanceKm,
                 e.DurationMinutes,
-                e.CountdownSeconds,
+                CountdownSeconds = (int)Math.Ceiling(remaining.TotalSeconds),
                 e.ExpiresAt
-            });
+            }, context.CancellationToken);
     }
 }
 
@@ -45,8 +54,9 @@ public class TripOfferExpiredConsumer(IHubContext<TripHub> hubContext)
             {
                 e.TripId,
                 e.DriverId,
+                e.OfferId,
                 e.Message
-            });
+            }, context.CancellationToken);
     }
 }
 
@@ -134,21 +144,14 @@ public class TripCancelledSignalRConsumer(IHubContext<TripHub> hubContext)
     }
 }
 
-// Consumer 7: Broadcast TripStatusChanged on matching failed (SD 11)
-public class MatchingFailedSignalRConsumer(IHubContext<TripHub> hubContext)
-    : IConsumer<MatchingFailedEvent>
+// Broadcast committed transitions for the trip room.
+public class TripStatusChangedSignalRConsumer(IHubContext<TripHub> hubContext)
+    : IConsumer<TripStatusChangedEvent>
 {
-    public async Task Consume(ConsumeContext<MatchingFailedEvent> context)
+    public Task Consume(ConsumeContext<TripStatusChangedEvent> context)
     {
         var e = context.Message;
-        var groupName = $"trip_{e.TripId.ToString().ToLowerInvariant()}";
-        await hubContext.Clients.Group(groupName)
-            .SendAsync("TripStatusChanged", new
-            {
-                e.TripId,
-                NewStatus = "Failed",
-                CancellationReason = e.Reason,
-                Timestamp = DateTimeOffset.UtcNow
-            });
+        return hubContext.Clients.Group($"trip_{e.TripId:D}")
+            .SendAsync("TripStatusChanged", e, context.CancellationToken);
     }
 }

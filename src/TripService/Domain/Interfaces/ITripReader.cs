@@ -8,6 +8,8 @@ public interface ITripReader
         Guid id,
         CancellationToken ct = default);
 
+    Task<Trip?> GetCurrentByIdAsync(Guid id, CancellationToken ct = default);
+
     Task<Trip?> GetActiveTripByUserAsync(
         Guid userId,
         CancellationToken ct = default);

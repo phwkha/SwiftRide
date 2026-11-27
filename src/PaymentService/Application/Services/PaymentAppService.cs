@@ -19,7 +19,7 @@ namespace PaymentService.Application.Services;
 
 /// <summary>
 /// Nghiep vu Payment: so cai kep (SD 12), idempotency (SD 13), refund Saga (SD 14), token hoa (SD 15).
-/// Moi thay doi so du duoc ghi cung 1 SaveChanges voi ledger entries va outbox message.
+/// Balance changes, ledger entries and outbox events commit in one database transaction.
 /// </summary>
 public class PaymentAppService
 {
@@ -117,6 +117,9 @@ public class PaymentAppService
         var record = await _repo.GetIdempotencyRecordAsync(idempotencyKey, ct);
         if (record is not null)
         {
+            if (record.Status == IdempotencyStatus.Success && record.RequestHash != ComputeHash(request))
+                throw new PaymentException(ErrorCodes.PaymentDuplicate, 409,
+                    "Khoa idempotency da duoc su dung cho request khac.");
             if (record.Status == IdempotencyStatus.Success && record.ResponsePayload is not null)
                 return JsonSerializer.Deserialize<PaymentResponse>(record.ResponsePayload)!;
 
@@ -190,9 +193,6 @@ public class PaymentAppService
         string? token = null;
         if (method == PaymentMethods.Wallet)
         {
-            if (riderWallet.Balance < amount)
-                throw new PaymentException(ErrorCodes.InsufficientBalance, 422,
-                    "So du trong vi khong du de thanh toan. Vui long nap them tien.");
             debitAccount = riderWallet;
         }
         else
@@ -230,11 +230,6 @@ public class PaymentAppService
         };
         LedgerValidator.EnsureBalanced(entries);
 
-        // Buoc 4: Cap nhat so du + idempotency + outbox trong cung 1 SaveChanges
-        ApplyEntry(debitAccount, entries[0]);
-        ApplyEntry(driverWallet, entries[1]);
-        ApplyEntry(platformRevenue, entries[2]);
-
         _repo.AddTransaction(tx);
         _repo.AddLedgerEntries(entries);
 
@@ -249,7 +244,7 @@ public class PaymentAppService
 
         try
         {
-            await _repo.SaveChangesAsync(ct);
+            await _repo.SaveLedgerChangesAsync(entries, method == PaymentMethods.Wallet ? riderWallet.Id : null, ct);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException
                                                { SqlState: PostgresErrorCodes.UniqueViolation })
@@ -342,11 +337,6 @@ public class PaymentAppService
             .ToList();
         LedgerValidator.EnsureBalanced(entries);
 
-        var accountIds = entries.Select(e => e.AccountId).Distinct().ToList();
-        var accounts = await _repo.GetAccountsByIdsAsync(accountIds, ct);
-        foreach (var entry in entries)
-            ApplyEntry(accounts[entry.AccountId], entry);
-
         original.Status = TransactionStatus.Refunded;
         _repo.AddTransaction(refundTx);
         _repo.AddLedgerEntries(entries);
@@ -354,7 +344,16 @@ public class PaymentAppService
         AddOutbox(new PaymentRefundedEvent(
             original.Id, original.TripId ?? Guid.Empty, refundTx.Id, original.TotalAmount, refundTx.Description));
 
-        await _repo.SaveChangesAsync(ct);
+        try
+        {
+            await _repo.SaveLedgerChangesAsync(entries, null, ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _repo.ClearTracking();
+            throw new PaymentException(ErrorCodes.PaymentDuplicate, 409,
+                "Giao dich da duoc hoan tien.");
+        }
 
         _logger.LogInformation("Refunded tx {TransactionId} with compensating tx {RefundId}.", original.Id, refundTx.Id);
         return new RefundPaymentResponse(original.Id, original.TotalAmount,
@@ -424,13 +423,6 @@ public class PaymentAppService
         var token = await _repo.ResolveTokenAsync(riderId, provider, tokenId, ct);
         return token ?? throw new PaymentException(ErrorCodes.ValidationError, 422,
             $"Khach hang chua lien ket nguon tien {provider}.");
-    }
-
-    /// <summary>Quy uoc chung: Debit tru so du, Credit cong so du (SD 12, SD 14).</summary>
-    private static void ApplyEntry(Account account, LedgerEntry entry)
-    {
-        account.Balance += entry.EntryType == EntryType.Credit ? entry.Amount : -entry.Amount;
-        account.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     private void AddOutbox<TEvent>(TEvent @event) where TEvent : class
